@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
@@ -229,7 +229,7 @@ async def get_objection_analysis(
             Objection.category,
             func.count(Objection.id).label("count"),
             func.avg(
-                func.case(
+                case(
                     (Objection.severity == "high", 3),
                     (Objection.severity == "medium", 2),
                     else_=1,

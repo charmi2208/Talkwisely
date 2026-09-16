@@ -8,11 +8,20 @@ Synthesizes conversation analytics into structured management reports:
 - Team QA & Coaching Report
 """
 
+import json
 from typing import Any
+
 from app.ai.providers.base import LLMMessage, LLMProvider
 from app.core.logging import get_logger
 
 logger = get_logger("ai.agents.report")
+
+REPORT_FOCUS = {
+    "executive": "overall conversation volume, sentiment, sales pipeline and open work",
+    "sales": "lead scores, purchase intent, deal health and sales objections",
+    "sentiment_objections": "customer sentiment and the objections customers raised",
+    "team_qa": "agent quality scores and coaching needs",
+}
 
 
 class ExecutiveReportAgent:
@@ -24,27 +33,26 @@ class ExecutiveReportAgent:
     async def generate_report(
         self,
         report_type: str,  # executive | sales | sentiment_objections | team_qa
-        time_period: str, # daily | weekly | monthly | custom
+        time_period: str,  # daily | weekly | monthly
         analytics_summary: dict[str, Any],
     ) -> dict[str, Any]:
-        """
-        Generate structured executive report with key statistics, trends, risks, and recommendations.
-        """
+        """Generate a structured report grounded in the supplied metrics."""
+        title = f"{report_type.replace('_', ' ').title()} Report ({time_period.title()})"
+        if self.llm.provider_name == "mock" or not analytics_summary.get("total_conversations"):
+            return self._data_report(report_type, time_period, title, analytics_summary)
+
         system_prompt = (
-            "You are an Executive Business Intelligence AI Analyst. "
-            "Synthesize conversation analytics data into a clear, high-level business report. "
-            "Return JSON with: title (string), executive_summary (string), key_insights (list of strings), "
-            "trends (list of {metric: string, trend: string, description: string}), "
-            "risks_and_bottlenecks (list of strings), strategic_recommendations (list of strings), "
-            "formatted_markdown (complete formatted markdown report)."
+            "You are a business intelligence analyst writing a management report about recorded sales and "
+            "support conversations. Use ONLY the metrics provided. Do not invent numbers, percentages, names or "
+            "comparisons with earlier periods (no earlier data is provided). If a metric is zero or missing, say so. "
+            f"Focus on {REPORT_FOCUS.get(report_type, REPORT_FOCUS['executive'])}. "
+            "Return JSON with: executive_summary (2-4 sentences), key_insights (list of strings, each citing a metric), "
+            "risks_and_bottlenecks (list of strings), strategic_recommendations (list of strings, each tied to a metric)."
         )
-
         user_content = (
-            f"Report Type: {report_type}\n"
-            f"Time Period: {time_period}\n"
-            f"Analytics Data:\n{analytics_summary}\n"
+            f"Report type: {report_type}\nPeriod: {time_period}\n"
+            f"Metrics (JSON):\n{json.dumps(analytics_summary, indent=2, default=str)}"
         )
-
         messages = [
             LLMMessage(role="system", content=system_prompt),
             LLMMessage(role="user", content=user_content),
@@ -52,42 +60,64 @@ class ExecutiveReportAgent:
 
         try:
             result = await self.llm.complete_json(messages)
-            return {
-                "report_type": report_type,
-                "time_period": time_period,
-                "title": result.get("title", f"{report_type.replace('_', ' ').title()} Report ({time_period.title()})"),
-                "executive_summary": result.get("executive_summary", ""),
-                "key_insights": result.get("key_insights", []),
-                "trends": result.get("trends", []),
-                "risks_and_bottlenecks": result.get("risks_and_bottlenecks", []),
-                "strategic_recommendations": result.get("strategic_recommendations", []),
-                "formatted_markdown": result.get("formatted_markdown", self._default_markdown(report_type, analytics_summary)),
-            }
         except Exception as e:
             logger.error("Report generation agent failed", error=str(e))
-            return {
-                "report_type": report_type,
-                "time_period": time_period,
-                "title": f"{report_type.replace('_', ' ').title()} Report ({time_period.title()})",
-                "executive_summary": f"Executive analytics summary for {time_period} period.",
-                "key_insights": [
-                    f"Total Conversations Analyzed: {analytics_summary.get('total_conversations', 0)}",
-                    f"Average Sentiment Score: {analytics_summary.get('avg_sentiment', 'Positive')}",
-                ],
-                "trends": [],
-                "risks_and_bottlenecks": ["Ensure high priority pricing objections are addressed by sales team."],
-                "strategic_recommendations": ["Follow up on high-intent lead opportunities immediately."],
-                "formatted_markdown": self._default_markdown(report_type, analytics_summary),
-            }
+            return self._data_report(report_type, time_period, title, analytics_summary)
 
-    def _default_markdown(self, report_type: str, data: dict) -> str:
-        return (
-            f"# {report_type.replace('_', ' ').title()} Executive Report\n\n"
-            f"**Total Conversations**: {data.get('total_conversations', 0)}\n\n"
-            f"## Key Highlights\n"
-            f"- Lead conversion rate and intent scores remain positive.\n"
-            f"- High intent leads tracked: {data.get('high_intent_count', 0)}\n\n"
-            f"## Strategic Recommendations\n"
-            f"1. Schedule follow-ups for all qualified demo requests.\n"
-            f"2. Provide targeted objection handling coaching for representatives.\n"
-        )
+        report = {
+            "report_type": report_type,
+            "time_period": time_period,
+            "title": title,
+            "executive_summary": str(result.get("executive_summary", "")),
+            "key_insights": [str(x) for x in result.get("key_insights", [])],
+            "trends": [],
+            "risks_and_bottlenecks": [str(x) for x in result.get("risks_and_bottlenecks", [])],
+            "strategic_recommendations": [str(x) for x in result.get("strategic_recommendations", [])],
+        }
+        report["formatted_markdown"] = self._markdown(report)
+        return report
+
+    def _data_report(self, report_type: str, time_period: str, title: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Report built directly from the metrics, used without an AI model or when it fails."""
+        total = data.get("total_conversations", 0)
+        insights = [f"Conversations analyzed: {total}"]
+        if total:
+            if data.get("avg_lead_score") is not None:
+                insights.append(f"Average lead score: {data['avg_lead_score']}/100")
+            insights.append(f"High purchase-intent conversations: {data.get('high_intent_count', 0)}")
+            if data.get("sentiment_distribution"):
+                insights.append("Sentiment: " + ", ".join(f"{k} {v}" for k, v in data["sentiment_distribution"].items()))
+            if data.get("top_objections"):
+                insights.append("Most common objections: " + ", ".join(
+                    f"{o['category']} ({o['count']})" for o in data["top_objections"]))
+            if data.get("avg_agent_score") is not None:
+                insights.append(f"Average agent QA score: {data['avg_agent_score']}/100")
+            insights.append(f"Open action items: {data.get('open_action_items', 0)}")
+
+        report = {
+            "report_type": report_type,
+            "time_period": time_period,
+            "title": title,
+            "executive_summary": (
+                f"{total} conversation(s) were analyzed in this {time_period} period."
+                if total else f"No conversations were analyzed in this {time_period} period."
+            ),
+            "key_insights": insights,
+            "trends": [],
+            "risks_and_bottlenecks": [],
+            "strategic_recommendations": [],
+        }
+        report["formatted_markdown"] = self._markdown(report)
+        return report
+
+    @staticmethod
+    def _markdown(report: dict[str, Any]) -> str:
+        lines = [f"# {report['title']}", "", report["executive_summary"], ""]
+        for heading, key in (
+            ("Key insights", "key_insights"),
+            ("Risks", "risks_and_bottlenecks"),
+            ("Recommendations", "strategic_recommendations"),
+        ):
+            if report.get(key):
+                lines += [f"## {heading}", *[f"- {item}" for item in report[key]], ""]
+        return "\n".join(lines).strip()

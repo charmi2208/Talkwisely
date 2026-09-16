@@ -8,7 +8,7 @@ GET /api/v1/sales/objections — Objection matrix by category, frequency, and se
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
@@ -82,41 +82,24 @@ async def get_objection_matrix(
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch objection frequency and resolution metrics across all sales calls."""
-    query = (
+    category = func.coalesce(Objection.category, "other")
+    res = await db.execute(
         select(
-            Objection.category,
+            category.label("category"),
             func.count(Objection.id).label("total"),
-            func.sum(func.cast(Objection.was_resolved, Integer if hasattr(Objection, 'was_resolved') else Integer)).label("resolved")
+            func.sum(case((Objection.was_resolved.is_(True), 1), else_=0)).label("resolved"),
         )
         .join(Conversation, Objection.conversation_id == Conversation.id)
         .where(Conversation.organization_id == current_user.organization_id)
-        .group_by(Objection.category)
+        .group_by(category)
+        .order_by(func.count(Objection.id).desc())
     )
-
-    # Simplified query safely handling counts
-    raw_query = (
-        select(Objection)
-        .join(Conversation, Objection.conversation_id == Conversation.id)
-        .where(Conversation.organization_id == current_user.organization_id)
-    )
-    res = await db.execute(raw_query)
-    objections = res.scalars().all()
-
-    stats: dict[str, dict] = {}
-    for obj in objections:
-        cat = obj.category or "other"
-        if cat not in stats:
-            stats[cat] = {"total": 0, "resolved": 0}
-        stats[cat]["total"] += 1
-        if obj.was_resolved:
-            stats[cat]["resolved"] += 1
-
     return [
         ObjectionSummary(
-            category=cat,
-            count=data["total"],
-            resolved_count=data["resolved"],
-            unresolved_count=data["total"] - data["resolved"],
+            category=row.category,
+            count=row.total,
+            resolved_count=row.resolved or 0,
+            unresolved_count=row.total - (row.resolved or 0),
         )
-        for cat, data in stats.items()
+        for row in res.all()
     ]

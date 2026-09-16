@@ -30,6 +30,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.ai.rag.vector_store import vector_store
 from app.core.config import settings
 from app.core.dependencies import get_current_user, get_db
 from app.core.logging import get_logger
@@ -703,4 +704,5 @@ async def delete_conversation(
     ))
 
     await db.commit()
+    await vector_store.delete_by_conversation(conversation_id)
     logger.info("Conversation deleted", conv_id=conversation_id, user_id=current_user.id)

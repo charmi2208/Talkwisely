@@ -38,16 +38,19 @@ class EmailGenerationAgent:
         system_prompt = (
             "You are a sales & customer communication AI specialist. "
             "Draft a context-aware follow-up email based strictly on conversation facts. "
-            "Never invent pricing, features, or deadlines not mentioned. "
-            "Return JSON with: subject (string), body (markdown text), suggested_actions (list of strings)."
+            "Never invent pricing, features, names or deadlines not mentioned. "
+            "If the recipient's name is unknown, use a neutral greeting such as 'Hi there'. "
+            "If the sender's name is unknown, sign off with '[Your name]' so the user fills it in. "
+            "Return JSON with: subject (string), body (plain-text email with line breaks, no markdown), "
+            "suggested_actions (list of strings)."
         )
 
         user_content = (
             f"Conversation Title: {conversation_title}\n"
             f"Email Type: {email_type}\n"
             f"Desired Tone: {tone}\n"
-            f"Recipient: {recipient_name or 'Valued Client'}\n"
-            f"Sender: {sender_name or 'Sales Representative'}\n"
+            f"Recipient: {recipient_name or 'unknown'}\n"
+            f"Sender: {sender_name or 'unknown'}\n"
             f"Executive Summary: {exec_summary}\n"
             f"Next Steps: {', '.join(next_steps)}\n"
             f"Action Items: {', '.join(tasks[:3])}\n"
@@ -57,6 +60,10 @@ class EmailGenerationAgent:
             LLMMessage(role="system", content=system_prompt),
             LLMMessage(role="user", content=user_content),
         ]
+
+        if self.llm.provider_name == "mock":
+            return self._template_email(conversation_title, exec_summary, next_steps, tasks,
+                                        email_type, tone, recipient_name, sender_name)
 
         try:
             result = await self.llm.complete_json(messages)
@@ -69,15 +76,32 @@ class EmailGenerationAgent:
             }
         except Exception as e:
             logger.error("Email generation failed", error=str(e))
-            return {
-                "subject": f"Follow-up: {conversation_title}",
-                "body": (
-                    f"Hi {recipient_name or 'there'},\n\n"
-                    f"Thank you for taking the time to speak today regarding {conversation_title}.\n\n"
-                    f"Summary of discussion: {exec_summary or 'We reviewed your requirements and next steps.'}\n\n"
-                    f"Best regards,\n{sender_name or 'The Team'}"
-                ),
-                "suggested_actions": next_steps[:2] if next_steps else ["Send follow-up proposal"],
-                "email_type": email_type,
-                "tone": tone,
-            }
+            return self._template_email(conversation_title, exec_summary, next_steps, tasks,
+                                        email_type, tone, recipient_name, sender_name)
+
+    @staticmethod
+    def _template_email(
+        conversation_title: str,
+        exec_summary: str,
+        next_steps: list[str],
+        tasks: list[str],
+        email_type: str,
+        tone: str,
+        recipient_name: Optional[str],
+        sender_name: Optional[str],
+    ) -> dict[str, Any]:
+        """Draft assembled only from stored conversation data (no AI model involved)."""
+        follow_ups = next_steps or tasks
+        body = [f"Hi {recipient_name or 'there'},", "", f"Thank you for your time on our call ({conversation_title})."]
+        if exec_summary:
+            body += ["", f"Summary: {exec_summary}"]
+        if follow_ups:
+            body += ["", "Next steps:", *[f"- {step}" for step in follow_ups[:5]]]
+        body += ["", "Best regards,", sender_name or "[Your name]"]
+        return {
+            "subject": f"Follow-up: {conversation_title}",
+            "body": "\n".join(body),
+            "suggested_actions": follow_ups[:3],
+            "email_type": email_type,
+            "tone": tone,
+        }

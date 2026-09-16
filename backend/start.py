@@ -51,7 +51,16 @@ def main():
     except Exception as e:
         print(f"   ⚠️  Seed failed (may already be seeded): {e}\n")
 
-    # Step 3: Start server
+    # Step 3: Build the semantic search index for anything not indexed yet
+    print("🔎 Updating search index...")
+    try:
+        import asyncio
+        from scripts.reindex import reindex
+        asyncio.run(reindex())
+    except Exception as e:
+        print(f"   ⚠️  Search indexing skipped: {e}\n")
+
+    # Step 4: Start server
     print("\n🌐 Starting FastAPI server...")
     print("   API:  http://localhost:8000")
     print("   Docs: http://localhost:8000/api/docs")
@@ -64,6 +73,7 @@ def main():
         "--host", settings.app_host,
         "--port", str(settings.app_port),
         "--reload",
+        "--reload-dir", "app",  # don't watch venv/ or storage/
         "--log-level", "info",
     ], cwd=backend_dir)
 

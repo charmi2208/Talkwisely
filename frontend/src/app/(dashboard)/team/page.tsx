@@ -4,7 +4,13 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Users, Mail } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle,
+} from "@/components/ui/item";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface TeamMember {
   id: string;
@@ -74,45 +80,50 @@ export default function TeamPage() {
   return (
     <AppShell title="Team & User Roles" subtitle="Manage organization team members and role-based permissions (Admin, Manager, Agent)">
       <div className="space-y-6">
-        <div className="glass-card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Users className="w-4 h-4 text-indigo-600" />
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="size-4" />
               Organization Team Members ({members.length})
-            </h3>
-          </div>
+            </CardTitle>
+          </CardHeader>
 
-          <div className="space-y-2.5">
-            {members.map((member) => (
-              <div key={member.id} className="flex items-center justify-between p-4 rounded-lg bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center font-bold text-xs text-indigo-700">
-                    {member.full_name.charAt(0)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-900">{member.full_name}</p>
-                    <p className="text-xs text-slate-500 flex items-center gap-1">
-                      <Mail className="w-3 h-3 text-slate-400" />
+          <CardContent>
+            <ItemGroup className="gap-2.5">
+              {members.map((member) => (
+                <Item key={member.id} variant="muted">
+                  <ItemMedia>
+                    <Avatar size="lg" className="size-9">
+                      <AvatarFallback className="text-xs font-semibold">
+                        {member.full_name.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle>{member.full_name}</ItemTitle>
+                    <ItemDescription className="flex items-center gap-1 text-xs">
+                      <Mail className="size-3" />
                       {member.email}
-                    </p>
-                  </div>
-                </div>
+                    </ItemDescription>
+                  </ItemContent>
 
-                <div className="flex items-center gap-3">
-                  <select
-                    value={member.role}
-                    onChange={(e) => handleRoleChange(member.id, e.target.value)}
-                    className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-indigo-600 font-semibold capitalize shadow-xs"
-                  >
-                    <option value="admin">Admin (Full Access)</option>
-                    <option value="manager">Manager (Team Analytics & QA)</option>
-                    <option value="agent">Sales/Support Agent</option>
-                  </select>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                  <ItemActions>
+                    <Select value={member.role} onValueChange={(v) => handleRoleChange(member.id, v)}>
+                      <SelectTrigger size="sm" className="bg-background text-xs font-medium">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="admin">Admin (Full Access)</SelectItem>
+                        <SelectItem value="manager">Manager (Team Analytics & QA)</SelectItem>
+                        <SelectItem value="agent">Sales/Support Agent</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </ItemActions>
+                </Item>
+              ))}
+            </ItemGroup>
+          </CardContent>
+        </Card>
       </div>
     </AppShell>
   );

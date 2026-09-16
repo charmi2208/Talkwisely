@@ -9,11 +9,12 @@ PATCH /api/v1/users/{id}/role — Update user role
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.core.dependencies import get_current_user, get_db
-from app.db.models import User, Role
+from app.core.dependencies import get_current_user, get_db, require_roles
+from app.db.models import Role, User, UserRole
 
 router = APIRouter(prefix="/users", tags=["Users & Organization Team"])
 
@@ -35,18 +36,44 @@ class UpdateRoleRequest(BaseModel):
     role: str  # admin | manager | agent
 
 
-@router.get("/me", response_model=UserProfileResponse)
-async def get_my_profile(current_user=Depends(get_current_user)):
-    """Get current authenticated user profile."""
+# Highest-privilege role wins when a user holds several
+_ROLE_PRIORITY = ("admin", "manager", "agent")
+
+
+def _primary_role(user: User) -> str:
+    names = {ur.role.name for ur in user.user_roles if ur.role}
+    return next((r for r in _ROLE_PRIORITY if r in names), "agent")
+
+
+def _to_profile(user: User, role: str) -> UserProfileResponse:
     return UserProfileResponse(
-        id=current_user.id,
-        email=current_user.email,
-        full_name=current_user.full_name,
-        role=current_user.role.name if hasattr(current_user.role, 'name') else str(current_user.role),
-        organization_id=current_user.organization_id,
-        avatar_url=current_user.avatar_url,
-        created_at=current_user.created_at.isoformat(),
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        role=role,
+        organization_id=user.organization_id,
+        avatar_url=user.avatar_url,
+        created_at=user.created_at.isoformat(),
     )
+
+
+async def _load_user_with_roles(db: AsyncSession, user_id: str, organization_id: str) -> User | None:
+    res = await db.execute(
+        select(User)
+        .options(selectinload(User.user_roles).selectinload(UserRole.role))
+        .where(User.id == user_id, User.organization_id == organization_id)
+    )
+    return res.scalar_one_or_none()
+
+
+@router.get("/me", response_model=UserProfileResponse)
+async def get_my_profile(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current authenticated user profile."""
+    user = await _load_user_with_roles(db, current_user.id, current_user.organization_id)
+    return _to_profile(user, _primary_role(user))
 
 
 @router.get("", response_model=list[UserProfileResponse])
@@ -55,70 +82,39 @@ async def list_team_members(
     db: AsyncSession = Depends(get_db),
 ):
     """List team members in the current user's organization."""
-    query = (
+    res = await db.execute(
         select(User)
+        .options(selectinload(User.user_roles).selectinload(UserRole.role))
         .where(User.organization_id == current_user.organization_id)
         .order_by(User.created_at.desc())
     )
-    res = await db.execute(query)
-    users = res.scalars().all()
-
-    items = []
-    for u in users:
-        role_str = u.role.name if hasattr(u.role, 'name') else str(u.role or "agent")
-        items.append(
-            UserProfileResponse(
-                id=u.id,
-                email=u.email,
-                full_name=u.full_name,
-                role=role_str,
-                organization_id=u.organization_id,
-                avatar_url=u.avatar_url,
-                created_at=u.created_at.isoformat(),
-            )
-        )
-
-    return items
+    return [_to_profile(u, _primary_role(u)) for u in res.scalars().all()]
 
 
 @router.patch("/{user_id}/role", response_model=UserProfileResponse)
 async def update_user_role(
     user_id: str,
     payload: UpdateRoleRequest,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_roles("admin")),
     db: AsyncSession = Depends(get_db),
 ):
     """Update team member role (Admin only)."""
-    current_role = current_user.role.name if hasattr(current_user.role, 'name') else str(current_user.role)
-    if current_role != "admin":
-        raise HTTPException(status_code=403, detail="Admin privileges required to update user roles")
+    if payload.role not in _ROLE_PRIORITY:
+        raise HTTPException(status_code=400, detail=f"Role must be one of: {', '.join(_ROLE_PRIORITY)}")
+    if user_id == current_user.id and payload.role != "admin":
+        raise HTTPException(status_code=400, detail="You can't remove your own admin role")
 
-    res = await db.execute(
-        select(User).where(
-            User.id == user_id,
-            User.organization_id == current_user.organization_id,
-        )
-    )
-    user_obj = res.scalar_one_or_none()
+    user_obj = await _load_user_with_roles(db, user_id, current_user.organization_id)
     if not user_obj:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Find role entity if using Role table or set directly
-    res_role = await db.execute(select(Role).where(Role.name == payload.role))
-    role_obj = res_role.scalar_one_or_none()
+    role_obj = (await db.execute(select(Role).where(Role.name == payload.role))).scalar_one_or_none()
+    if not role_obj:
+        raise HTTPException(status_code=400, detail=f"Role '{payload.role}' is not configured")
 
-    if role_obj:
-        user_obj.role_id = role_obj.id
-
+    # A user holds exactly one role; replace any existing assignments
+    await db.execute(delete(UserRole).where(UserRole.user_id == user_obj.id))
+    db.add(UserRole(user_id=user_obj.id, role_id=role_obj.id))
     await db.commit()
-    await db.refresh(user_obj)
 
-    return UserProfileResponse(
-        id=user_obj.id,
-        email=user_obj.email,
-        full_name=user_obj.full_name,
-        role=payload.role,
-        organization_id=user_obj.organization_id,
-        avatar_url=user_obj.avatar_url,
-        created_at=user_obj.created_at.isoformat(),
-    )
+    return _to_profile(user_obj, payload.role)

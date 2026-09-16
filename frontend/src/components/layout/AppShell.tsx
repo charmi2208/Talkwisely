@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -17,16 +16,32 @@ import {
   Bot,
   Settings,
   LogOut,
-  Bell,
-  ChevronLeft,
-  ChevronRight,
   Plug,
   UserCircle,
   PhoneCall,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/stores/authStore";
-import toast from "react-hot-toast";
-import { clsx } from "clsx";
+import { toast } from "sonner";
+import { ModeToggle } from "@/components/mode-toggle";
+import { NotificationsMenu } from "@/components/layout/NotificationsMenu";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
 
 const navItems = [
   {
@@ -70,12 +85,7 @@ const navItems = [
   },
 ];
 
-interface AppSidebarProps {
-  collapsed: boolean;
-  setCollapsed: (v: boolean) => void;
-}
-
-export function AppSidebar({ collapsed, setCollapsed }: AppSidebarProps) {
+export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, clearAuth } = useAuthStore();
@@ -92,99 +102,72 @@ export function AppSidebar({ collapsed, setCollapsed }: AppSidebarProps) {
   };
 
   return (
-    <aside
-      className={clsx(
-        "flex flex-col h-full bg-white border-r border-slate-200 transition-all duration-300 shadow-sm z-20",
-        collapsed ? "w-16" : "w-64"
-      )}
-    >
+    <Sidebar collapsible="icon" variant="inset">
       {/* Logo */}
-      <div className={clsx("flex items-center h-16 px-4 border-b border-slate-100", collapsed ? "justify-center" : "gap-3")}>
-        <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0 shadow-sm">
-          <Brain className="w-5 h-5 text-white" />
-        </div>
-        {!collapsed && (
-          <span className="text-base font-bold text-slate-900 truncate tracking-tight">TalkWiseAI</span>
-        )}
-      </div>
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="lg" asChild>
+              <Link href="/dashboard">
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                  <Brain className="size-4" />
+                </div>
+                <span className="truncate font-semibold">TalkWiseAI</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-4 px-2">
+      <SidebarContent>
         {navItems.map((section) => (
-          <div key={section.section} className="mb-5">
-            {!collapsed && (
-              <div className="px-3 mb-2">
-                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  {section.section}
-                </span>
-              </div>
-            )}
-            <ul className="space-y-0.5">
-              {section.items.map((item) => {
-                const active = isActive(item.href);
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      className={clsx(
-                        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 group",
-                        active
-                          ? "bg-indigo-50 text-indigo-600 font-semibold"
-                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-50",
-                        collapsed && "justify-center"
-                      )}
-                      title={collapsed ? item.label : undefined}
-                    >
-                      <item.icon
-                        className={clsx("w-4 h-4 flex-shrink-0", active ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600")}
-                      />
-                      {!collapsed && <span>{item.label}</span>}
-                      {active && !collapsed && (
-                        <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-600" />
-                      )}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+          <SidebarGroup key={section.section}>
+            <SidebarGroupLabel>{section.section}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {section.items.map((item) => (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton asChild isActive={isActive(item.href)} tooltip={item.label}>
+                      <Link href={item.href}>
+                        <item.icon />
+                        <span>{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         ))}
-      </nav>
+      </SidebarContent>
 
       {/* User / logout */}
-      <div className="border-t border-slate-100 p-3 bg-slate-50/50">
-        {!collapsed && user && (
-          <div className="flex items-center gap-3 px-2 py-2 mb-1">
-            <div className="w-8 h-8 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center flex-shrink-0 text-indigo-700 text-xs font-bold">
-              {user.full_name.charAt(0)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-slate-900 truncate">{user.full_name}</p>
-              <p className="text-xs text-slate-500 truncate">{user.email}</p>
-            </div>
-          </div>
-        )}
-        <button
-          onClick={handleLogout}
-          className={clsx(
-            "flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-all",
-            collapsed && "justify-center"
+      <SidebarFooter>
+        <SidebarMenu>
+          {user && (
+            <SidebarMenuItem>
+              <SidebarMenuButton size="lg" className="pointer-events-none">
+                <Avatar className="rounded-lg">
+                  <AvatarFallback className="rounded-lg">{user.full_name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <div className="grid flex-1 text-left text-sm leading-tight">
+                  <span className="truncate font-medium">{user.full_name}</span>
+                  <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+                </div>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           )}
-          title={collapsed ? "Sign out" : undefined}
-        >
-          <LogOut className="w-4 h-4 flex-shrink-0" />
-          {!collapsed && <span>Sign out</span>}
-        </button>
-      </div>
-
-      {/* Collapse toggle */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 top-20 w-6 h-6 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all z-30"
-      >
-        {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
-      </button>
-    </aside>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleLogout} tooltip="Sign out">
+              <LogOut />
+              <span>Sign out</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
   );
 }
 
@@ -197,19 +180,21 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
   const { user } = useAuthStore();
 
   return (
-    <header className="h-16 flex items-center justify-between px-6 border-b border-slate-200 bg-white/90 backdrop-blur-sm z-10">
-      <div>
-        <h1 className="text-lg font-bold text-slate-900 tracking-tight">{title}</h1>
-        {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+    <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 rounded-t-xl border-b bg-background/90 px-4 backdrop-blur-sm lg:px-6">
+      <SidebarTrigger className="-ml-1" />
+      <Separator orientation="vertical" className="mx-2 data-[orientation=vertical]:h-4" />
+      <div className="min-w-0 flex-1">
+        <h1 className="truncate text-base font-semibold">{title}</h1>
+        {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
       </div>
       <div className="flex items-center gap-3">
-        <button className="relative w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all">
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-600" />
-        </button>
-        <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-sm font-semibold shadow-sm">
-          {user?.full_name?.charAt(0) || "U"}
-        </div>
+        <ModeToggle />
+        <NotificationsMenu />
+        <Avatar size="lg" className="rounded-lg after:rounded-lg">
+          <AvatarFallback className="rounded-lg bg-primary text-primary-foreground">
+            {user?.full_name?.charAt(0) || "U"}
+          </AvatarFallback>
+        </Avatar>
       </div>
     </header>
   );
@@ -222,17 +207,13 @@ interface AppShellProps {
 }
 
 export function AppShell({ title, subtitle, children }: AppShellProps) {
-  const [collapsed, setCollapsed] = useState(false);
-
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 font-sans">
-      <div className="relative flex-shrink-0">
-        <AppSidebar collapsed={collapsed} setCollapsed={setCollapsed} />
-      </div>
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset className="min-w-0">
         <AppHeader title={title} subtitle={subtitle} />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
-      </div>
-    </div>
+        <div className="flex-1 p-4 lg:p-6">{children}</div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

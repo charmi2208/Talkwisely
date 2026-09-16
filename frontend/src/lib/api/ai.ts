@@ -1,16 +1,31 @@
 import { apiClient } from "./client";
 
+export interface Citation {
+  source: number;
+  doc_type?: "transcript" | "summary" | "knowledge_base" | null;
+  conversation_id?: string | null;
+  document_id?: string | null;
+  title?: string | null;
+  timestamp?: string | null;
+  start_time?: number | null;
+  speaker?: string | null;
+  text_snippet?: string;
+  score?: number;
+}
+
+/** "Title at 01:23, Customer" style label for a citation. */
+export function citationLabel(c: Citation): string {
+  let label = c.title || (c.doc_type === "knowledge_base" ? "Knowledge base" : "Conversation");
+  if (c.timestamp) label += ` at ${c.timestamp}`;
+  if (c.doc_type === "summary") label += " (summary)";
+  if (c.speaker && c.speaker !== "Multiple speakers") label += `, ${c.speaker}`;
+  return label;
+}
+
 export interface CopilotChatResponse {
-  answer: str;
-  query: str;
-  citations: Array<{
-    conversation_id?: string;
-    title?: string;
-    timestamp?: string;
-    speaker?: string;
-    text_snippet?: string;
-    score?: number;
-  }>;
+  answer: string;
+  query: string;
+  citations: Citation[];
   context_count: number;
 }
 

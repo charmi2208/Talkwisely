@@ -4,8 +4,16 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { CheckCircle, Plus, User, Calendar } from "lucide-react";
 import { actionItemsApi, ActionItem } from "@/lib/api/action_items";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
 import { clsx } from "clsx";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle,
+} from "@/components/ui/item";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 export default function ActionItemsPage() {
   const [items, setItems] = useState<ActionItem[]>([]);
@@ -103,98 +111,101 @@ export default function ActionItemsPage() {
       <div className="space-y-6">
         {/* Actions bar */}
         <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            {["all", "pending", "in_progress", "completed"].map((st) => (
-              <button
-                key={st}
-                onClick={() => setStatusFilter(st)}
-                className={clsx(
-                  "px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all",
-                  statusFilter === st ? "bg-indigo-600 text-white shadow-xs" : "bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200"
-                )}
-              >
-                {st.replace("_", " ")}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => setIsAdding(!isAdding)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-sm transition-colors"
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={statusFilter}
+            onValueChange={(v) => v && setStatusFilter(v)}
           >
-            <Plus className="w-4 h-4" />
+            {["all", "pending", "in_progress", "completed"].map((st) => (
+              <ToggleGroupItem key={st} value={st} className="text-xs capitalize">
+                {st.replace("_", " ")}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <Button size="sm" onClick={() => setIsAdding(!isAdding)}>
+            <Plus data-icon="inline-start" />
             Add Task
-          </button>
+          </Button>
         </div>
 
         {/* Create Task Form */}
         {isAdding && (
-          <form onSubmit={handleCreate} className="glass-card p-4 flex flex-col md:flex-row gap-3 items-center">
-            <input
-              type="text"
-              placeholder="Task description..."
-              value={newDescription}
-              onChange={(e) => setNewDescription(e.target.value)}
-              className="flex-1 bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-600"
-              required
-            />
-            <input
-              type="text"
-              placeholder="Owner (optional)"
-              value={newOwner}
-              onChange={(e) => setNewOwner(e.target.value)}
-              className="w-48 bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-600"
-            />
-            <button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs font-semibold text-white shadow-xs">
-              Save
-            </button>
-          </form>
+          <Card size="sm">
+            <CardContent>
+              <form onSubmit={handleCreate} className="flex flex-col md:flex-row gap-3 items-center">
+                <Input
+                  type="text"
+                  placeholder="Task description..."
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  className="flex-1"
+                  required
+                />
+                <Input
+                  type="text"
+                  placeholder="Owner (optional)"
+                  value={newOwner}
+                  onChange={(e) => setNewOwner(e.target.value)}
+                  className="md:w-48"
+                />
+                <Button type="submit">
+                  Save
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
         )}
 
         {/* Task list */}
-        <div className="space-y-2.5">
+        <ItemGroup className="gap-2.5">
           {filteredItems.map((item) => (
-            <div key={item.id} className="glass-card p-4 flex items-center gap-4 hover:border-slate-300 transition-all">
-              <button
-                onClick={() => handleToggleStatus(item)}
-                className={clsx(
-                  "w-5 h-5 rounded-full border flex items-center justify-center transition-colors flex-shrink-0",
-                  item.status === "completed" ? "bg-emerald-600 border-emerald-600 text-white" : "border-slate-300 hover:border-indigo-600"
-                )}
-              >
-                {item.status === "completed" && <CheckCircle className="w-3.5 h-3.5" />}
-              </button>
+            <Item key={item.id} variant="outline" className="bg-card">
+              <ItemMedia>
+                <Button
+                  variant={item.status === "completed" ? "default" : "outline"}
+                  size="icon-xs"
+                  className="rounded-full"
+                  onClick={() => handleToggleStatus(item)}
+                  aria-label={item.status === "completed" ? "Reopen task" : "Complete task"}
+                >
+                  {item.status === "completed" && <CheckCircle />}
+                </Button>
+              </ItemMedia>
 
-              <div className="flex-1 min-w-0">
-                <p className={clsx("text-sm font-semibold", item.status === "completed" ? "line-through text-slate-400" : "text-slate-900")}>
+              <ItemContent className="min-w-0">
+                <ItemTitle className={clsx(item.status === "completed" && "line-through text-muted-foreground")}>
                   {item.description}
-                </p>
-                <div className="flex items-center gap-4 mt-0.5 text-xs text-slate-500">
+                </ItemTitle>
+                <ItemDescription className="flex items-center gap-4 text-xs">
                   {item.conversation_title && <span>Ref: {item.conversation_title}</span>}
                   {item.owner && (
                     <span className="flex items-center gap-1">
-                      <User className="w-3 h-3 text-slate-400" />
+                      <User className="size-3" />
                       {item.owner}
                     </span>
                   )}
                   {item.due_date && (
                     <span className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3 text-slate-400" />
+                      <Calendar className="size-3" />
                       {item.due_date}
                     </span>
                   )}
-                </div>
-              </div>
+                </ItemDescription>
+              </ItemContent>
 
-              <span className={clsx("text-xs px-2.5 py-0.5 rounded-full capitalize font-semibold border",
-                item.priority === "urgent" ? "badge-high" :
-                item.priority === "high" ? "badge-medium" :
-                "badge-neutral"
-              )}>
-                {item.priority}
-              </span>
-            </div>
+              <ItemActions>
+                <Badge
+                  variant={item.priority === "urgent" ? "destructive" : item.priority === "high" ? "secondary" : "outline"}
+                  className="capitalize"
+                >
+                  {item.priority}
+                </Badge>
+              </ItemActions>
+            </Item>
           ))}
-        </div>
+        </ItemGroup>
       </div>
     </AppShell>
   );

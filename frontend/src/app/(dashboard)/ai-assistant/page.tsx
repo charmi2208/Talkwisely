@@ -1,16 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
-import { Bot, Send, Sparkles, User, Loader2 } from "lucide-react";
-import { aiApi } from "@/lib/api/ai";
-import toast from "react-hot-toast";
+import { Bot, Send, Sparkles, User } from "lucide-react";
+import { aiApi, citationLabel, type Citation } from "@/lib/api/ai";
+import { toast } from "sonner";
+import { clsx } from "clsx";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-  citations?: any[];
+  citations?: Citation[];
 }
 
 export default function AIAssistantPage() {
@@ -35,32 +45,24 @@ export default function AIAssistantPage() {
     const q = queryText || input;
     if (!q.trim() || loading) return;
 
-    const userMsg: Message = { id: Date.now().toString(), role: "user", content: q };
+    const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: q };
     setMessages((prev) => [...prev, userMsg]);
     if (!queryText) setInput("");
     setLoading(true);
 
     try {
-      const history = messages.map((m) => ({ role: m.role, content: m.content }));
+      const history = messages.filter((m) => m.id !== "init").map((m) => ({ role: m.role, content: m.content }));
       const res = await aiApi.chat(q, undefined, history);
 
       const botMsg: Message = {
-        id: (Date.now() + 1).toString(),
+        id: crypto.randomUUID(),
         role: "assistant",
         content: res.answer,
         citations: res.citations,
       };
       setMessages((prev) => [...prev, botMsg]);
     } catch {
-      toast.error("Failed to fetch response from Copilot");
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          content: "Based on available records: High-intent leads and sales calls have been processed. (Local fallback query executed)",
-        },
-      ]);
+      toast.error("Copilot couldn't answer right now. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -71,59 +73,83 @@ export default function AIAssistantPage() {
       <div className="flex flex-col h-[calc(100vh-12rem)] space-y-4">
         {/* Sample prompt chips */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
-          <Sparkles className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+          <Sparkles className="size-4 shrink-0" />
           {samplePrompts.map((prompt, idx) => (
-            <button
+            <Button
               key={idx}
+              variant="outline"
+              size="xs"
               onClick={() => handleSend(prompt)}
-              className="text-xs px-3 py-1.5 rounded-full bg-white hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-slate-700 transition-colors flex-shrink-0 border border-slate-200 shadow-2xs font-medium"
+              className="rounded-full px-3"
             >
               {prompt}
-            </button>
+            </Button>
           ))}
         </div>
 
         {/* Chat message history */}
-        <div className="flex-1 glass-card p-5 overflow-y-auto space-y-4 bg-white">
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              {msg.role === "assistant" && (
-                <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0 shadow-xs">
-                  <Bot className="w-4.5 h-4.5 text-white" />
-                </div>
-              )}
-              <div className={`max-w-2xl rounded-xl p-4 text-sm ${msg.role === "user" ? "bg-indigo-600 text-white shadow-xs" : "bg-slate-50 text-slate-800 border border-slate-200 shadow-xs"}`}>
-                <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+        <Card className="flex-1 min-h-0 py-0">
+          <ScrollArea className="h-full">
+            <div className="p-5 space-y-4">
+              {messages.map((msg) => (
+                <div key={msg.id} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  {msg.role === "assistant" && (
+                    <Avatar className="rounded-lg after:rounded-lg">
+                      <AvatarFallback className="rounded-lg bg-primary text-primary-foreground">
+                        <Bot className="size-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                  )}
+                  <div
+                    className={clsx(
+                      "max-w-2xl rounded-xl p-4 text-sm",
+                      msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
+                    )}
+                  >
+                    <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
 
-                {msg.citations && msg.citations.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-slate-200 space-y-1.5">
-                    <span className="text-[11px] font-bold text-indigo-600 uppercase tracking-wide">Transcript Citations</span>
-                    {msg.citations.map((c: any, i: number) => (
-                      <div key={i} className="text-xs p-2 rounded-lg bg-white border border-slate-200">
-                        <div className="flex items-center justify-between text-slate-600 font-medium mb-1">
-                          <span>{c.title} [{c.timestamp}]</span>
-                          <span className="text-[10px] text-slate-400">{c.speaker}</span>
-                        </div>
-                        <p className="text-slate-700 italic">"{c.text_snippet}"</p>
+                    {msg.citations && msg.citations.length > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        <Separator className="mb-3" />
+                        <span className="text-[11px] font-semibold text-muted-foreground">Sources</span>
+                        {msg.citations.map((c) => {
+                          const body = (
+                            <ItemContent>
+                              <ItemTitle className="text-xs">[{c.source}] {citationLabel(c)}</ItemTitle>
+                              {c.text_snippet && (
+                                <ItemDescription className="text-xs italic text-foreground">&ldquo;{c.text_snippet}&rdquo;</ItemDescription>
+                              )}
+                            </ItemContent>
+                          );
+                          return c.conversation_id ? (
+                            <Item key={c.source} variant="outline" size="xs" className="bg-background" asChild>
+                              <Link href={`/conversations/${c.conversation_id}`}>{body}</Link>
+                            </Item>
+                          ) : (
+                            <Item key={c.source} variant="outline" size="xs" className="bg-background">{body}</Item>
+                          );
+                        })}
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
-              </div>
-              {msg.role === "user" && (
-                <div className="w-8 h-8 rounded-lg bg-slate-200 flex items-center justify-center flex-shrink-0">
-                  <User className="w-4 h-4 text-slate-700" />
+                  {msg.role === "user" && (
+                    <Avatar className="rounded-lg after:rounded-lg">
+                      <AvatarFallback className="rounded-lg">
+                        <User className="size-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                  )}
+                </div>
+              ))}
+              {loading && (
+                <div className="flex items-center gap-3 text-muted-foreground text-sm font-medium">
+                  <Spinner />
+                  Searching transcript vector DB & synthesizing answer...
                 </div>
               )}
             </div>
-          ))}
-          {loading && (
-            <div className="flex items-center gap-3 text-slate-500 text-sm font-medium">
-              <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-              Searching transcript vector DB & synthesizing answer...
-            </div>
-          )}
-        </div>
+          </ScrollArea>
+        </Card>
 
         {/* Input box */}
         <form
@@ -133,21 +159,17 @@ export default function AIAssistantPage() {
           }}
           className="flex gap-2"
         >
-          <input
+          <Input
             type="text"
             placeholder="Ask Copilot about calls, pricing objections, buying signals, tasks..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            className="flex-1 bg-white border border-slate-300 rounded-lg px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-600 shadow-xs"
+            className="flex-1 h-10"
           />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            className="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold flex items-center gap-2 text-sm shadow-xs transition-all"
-          >
-            <Send className="w-4 h-4" />
+          <Button type="submit" size="lg" disabled={loading || !input.trim()}>
+            <Send data-icon="inline-start" />
             Send
-          </button>
+          </Button>
         </form>
       </div>
     </AppShell>

@@ -8,7 +8,7 @@ POST /api/v1/notifications/{id}/read — Mark notification as read
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
@@ -57,6 +57,20 @@ async def list_notifications(
         )
         for n in notifications
     ]
+
+
+@router.post("/read-all", status_code=status.HTTP_204_NO_CONTENT)
+async def mark_all_notifications_read(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark every notification for the current user as read."""
+    await db.execute(
+        update(Notification)
+        .where(Notification.user_id == current_user.id, Notification.is_read == False)  # noqa: E712
+        .values(is_read=True)
+    )
+    await db.commit()
 
 
 @router.post("/{notification_id}/read", response_model=NotificationResponse)

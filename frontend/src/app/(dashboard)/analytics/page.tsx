@@ -4,6 +4,14 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Users, AlertTriangle } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle,
+} from "@/components/ui/card";
+import {
+  Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle,
+} from "@/components/ui/item";
+import { Progress } from "@/components/ui/progress";
 
 export default function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<any>(null);
@@ -51,80 +59,92 @@ export default function AnalyticsPage() {
       <div className="space-y-6">
         {/* Metric Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="glass-card p-5">
-            <p className="text-xs font-semibold text-slate-500 mb-1">Total Conversations</p>
-            <p className="text-3xl font-extrabold text-slate-900">{analytics?.total_conversations ?? 1248}</p>
-            <p className="text-xs font-semibold text-emerald-600 mt-1">↑ 14% vs last month</p>
-          </div>
-          <div className="glass-card p-5">
-            <p className="text-xs font-semibold text-slate-500 mb-1">Avg Sentiment Score</p>
-            <p className="text-3xl font-extrabold text-emerald-600">+{analytics?.avg_sentiment_score ?? "0.68"}</p>
-            <p className="text-xs text-slate-400 mt-1">Positive trend indicator</p>
-          </div>
-          <div className="glass-card p-5">
-            <p className="text-xs font-semibold text-slate-500 mb-1">Avg Agent Score</p>
-            <p className="text-3xl font-extrabold text-indigo-600">{analytics?.avg_agent_score ?? 87}/100</p>
-            <p className="text-xs text-slate-400 mt-1">QA Evaluation average</p>
-          </div>
-          <div className="glass-card p-5">
-            <p className="text-xs font-semibold text-slate-500 mb-1">High Intent Pipeline</p>
-            <p className="text-3xl font-extrabold text-purple-600">{analytics?.high_intent_leads ?? 84}</p>
-            <p className="text-xs text-slate-400 mt-1">Qualified leads</p>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardDescription>Total Conversations</CardDescription>
+              <CardTitle className="text-3xl font-semibold tabular-nums">{analytics?.total_conversations ?? 1248}</CardTitle>
+            </CardHeader>
+            <CardFooter className="text-xs font-medium text-success">↑ 14% vs last month</CardFooter>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Avg Sentiment Score</CardDescription>
+              <CardTitle className="text-3xl font-semibold tabular-nums">+{analytics?.avg_sentiment_score ?? "0.68"}</CardTitle>
+            </CardHeader>
+            <CardFooter className="text-xs text-muted-foreground">Positive trend indicator</CardFooter>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Avg Agent Score</CardDescription>
+              <CardTitle className="text-3xl font-semibold tabular-nums">{analytics?.avg_agent_score ?? 87}/100</CardTitle>
+            </CardHeader>
+            <CardFooter className="text-xs text-muted-foreground">QA Evaluation average</CardFooter>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>High Intent Pipeline</CardDescription>
+              <CardTitle className="text-3xl font-semibold tabular-nums">{analytics?.high_intent_leads ?? 84}</CardTitle>
+            </CardHeader>
+            <CardFooter className="text-xs text-muted-foreground">Qualified leads</CardFooter>
+          </Card>
         </div>
 
         {/* Objection & Agent Performance breakdown */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Objections chart */}
-          <div className="glass-card p-6">
-            <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-600" />
-              Objection Frequency Matrix
-            </h3>
-            <div className="space-y-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="size-4 text-warning" />
+                Objection Frequency Matrix
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
               {(analytics?.objection_breakdown || []).map((item: any, i: number) => (
-                <div key={i} className="space-y-1">
-                  <div className="flex justify-between text-xs font-semibold">
-                    <span className="text-slate-700">{item.category}</span>
-                    <span className="text-amber-700 font-bold">{item.count} mentions</span>
+                <div key={i} className="space-y-1.5">
+                  <div className="flex justify-between text-xs font-medium">
+                    <span>{item.category}</span>
+                    <span className="text-muted-foreground tabular-nums">{item.count} mentions</span>
                   </div>
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-                    <div
-                      className="h-full bg-amber-500 rounded-full"
-                      style={{ width: `${Math.min(100, (item.count / 50) * 100)}%` }}
-                    />
-                  </div>
+                  <Progress
+                    value={Math.min(100, (item.count / 50) * 100)}
+                    className="h-2 *:data-[slot=progress-indicator]:bg-amber-500"
+                  />
                 </div>
               ))}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Agent Leaderboard */}
-          <div className="glass-card p-6">
-            <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <Users className="w-4 h-4 text-indigo-600" />
-              Team Performance Leaderboard
-            </h3>
-            <div className="space-y-2.5">
-              {(analytics?.agent_leaderboard || []).map((agent: any, idx: number) => (
-                <div key={idx} className="flex items-center justify-between p-3.5 rounded-lg bg-slate-50 border border-slate-200">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center font-bold text-xs text-indigo-700">
-                      #{idx + 1}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{agent.name}</p>
-                      <p className="text-xs text-slate-500">{agent.calls} calls evaluated</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-sm font-extrabold text-emerald-600">{agent.score}/100</span>
-                    <span className="text-[10px] text-slate-400 block uppercase font-semibold">QA score</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="size-4" />
+                Team Performance Leaderboard
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ItemGroup className="gap-2.5">
+                {(analytics?.agent_leaderboard || []).map((agent: any, idx: number) => (
+                  <Item key={idx} variant="muted" size="sm">
+                    <ItemMedia>
+                      <Avatar>
+                        <AvatarFallback className="text-xs font-semibold">#{idx + 1}</AvatarFallback>
+                      </Avatar>
+                    </ItemMedia>
+                    <ItemContent>
+                      <ItemTitle>{agent.name}</ItemTitle>
+                      <ItemDescription className="text-xs">{agent.calls} calls evaluated</ItemDescription>
+                    </ItemContent>
+                    <ItemActions className="flex-col items-end gap-0">
+                      <span className="text-sm font-semibold tabular-nums">{agent.score}/100</span>
+                      <span className="text-[10px] text-muted-foreground uppercase font-semibold">QA score</span>
+                    </ItemActions>
+                  </Item>
+                ))}
+              </ItemGroup>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </AppShell>

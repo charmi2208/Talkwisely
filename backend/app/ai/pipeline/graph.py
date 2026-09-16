@@ -9,6 +9,7 @@ Pipeline flow:
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 from functools import partial
 from typing import Any
 
@@ -240,6 +241,18 @@ def get_llm_provider() -> LLMProvider:
         return MockLLMProvider()
 
 
+@asynccontextmanager
+async def llm_session():
+    """Yield the configured LLM provider and close its HTTP client afterwards."""
+    llm = get_llm_provider()
+    try:
+        yield llm
+    finally:
+        close = getattr(llm, "aclose", None)
+        if close:
+            await close()
+
+
 def get_stt_provider():
     """Factory: return the configured STT provider."""
     from app.core.config import settings
@@ -247,6 +260,9 @@ def get_stt_provider():
     if settings.stt_provider == "whisper_local":
         from app.ai.providers.stt.whisper_provider import WhisperLocalProvider
         return WhisperLocalProvider()
+    if settings.stt_provider == "whisper_api":
+        from app.ai.providers.stt.whisper_api_provider import WhisperAPIProvider
+        return WhisperAPIProvider()
     else:
         from app.ai.providers.stt.mock_provider import MockSTTProvider
         return MockSTTProvider()

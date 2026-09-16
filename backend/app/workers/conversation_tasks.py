@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.workers.celery_app import celery_app
 from app.core.config import settings
+from app.db.sanitize import clean_row
 
 logger = get_task_logger(__name__)
 
@@ -88,6 +89,7 @@ def process_conversation(self: Task, conversation_id: str, job_id: str, file_pat
     except Exception as e:
         logger.error(f"Conversation processing failed: {conversation_id} — {e}")
         error_msg = str(e)
+        db.rollback()  # the session may be mid-transaction after a failed flush
         _update_job_status(db, job_id, "failed", 0, "Failed")
         _update_conversation_status(db, conversation_id, "failed", error=error_msg)
 
@@ -103,6 +105,31 @@ def process_conversation(self: Task, conversation_id: str, job_id: str, file_pat
         db.close()
 
 
+async def _close_provider(provider) -> None:
+    """HTTP clients must close inside this job's event loop, which asyncio.run discards afterwards."""
+    close = getattr(provider, "aclose", None)
+    if close:
+        try:
+            await close()
+        except Exception:
+            pass
+
+
+def _user_facing_error(exc: Exception) -> str:
+    """Short, actionable reason for the UI; full details stay in the logs."""
+    name = type(exc).__name__
+    text = str(exc)
+    if name == "AuthenticationError" or "invalid_api_key" in text:
+        return "The AI provider rejected the API key. Check LLM_API_KEY in backend/.env.local."
+    if name == "RateLimitError":
+        return "The AI provider's rate limit was reached. Wait a minute and upload again."
+    if name in ("APIConnectionError", "APITimeoutError"):
+        return "Couldn't reach the AI provider. Check your internet connection and try again."
+    if "ffmpeg" in text or isinstance(exc, FileNotFoundError):
+        return text[:300]
+    return "Processing failed during analysis. See the backend logs for details, then try uploading again."
+
+
 def run_conversation_pipeline_direct(conversation_id: str, job_id: str, file_path: str) -> dict:
     """Run pipeline directly in background thread without Celery wrapper."""
     logger.info(f"Starting direct background conversation processing: {conversation_id}")
@@ -113,8 +140,9 @@ def run_conversation_pipeline_direct(conversation_id: str, job_id: str, file_pat
         result = asyncio.run(_async_process_conversation(conversation_id, job_id, file_path, db))
         return result
     except Exception as e:
-        logger.error(f"Conversation processing failed: {conversation_id} — {e}")
-        error_msg = str(e)
+        logger.exception(f"Conversation processing failed: {conversation_id} — {e}")
+        error_msg = _user_facing_error(e)
+        db.rollback()  # the session may be mid-transaction after a failed flush
         _update_job_status(db, job_id, "failed", 0, "Failed")
         _update_conversation_status(db, conversation_id, "failed", error=error_msg)
         try:
@@ -145,7 +173,10 @@ async def _async_process_conversation(
     _update_conversation_status(db, conversation_id, "transcribing")
 
     stt = get_stt_provider()
-    transcript_result = await stt.transcribe(file_path, diarize=True)
+    try:
+        transcript_result = await stt.transcribe(file_path, diarize=True)
+    finally:
+        await _close_provider(stt)
 
     # Convert STT segments to pipeline format
     raw_segments = []
@@ -221,19 +252,33 @@ async def _async_process_conversation(
     async def on_step_callback(step_name: str, pct: int) -> None:
         update("processing", 35 + int(pct * 0.55), step_name)
 
-    pipeline_state = await pipeline.run(
-        conversation_id=conversation_id,
-        organization_id=conv.organization_id if conv else "",
-        raw_segments=raw_segments,
-        full_transcript_text=transcript_result.full_text,
-        language=transcript_result.language,
-        duration_seconds=transcript_result.duration,
-        audio_file_path=file_path,
-        on_step=on_step_callback,
-    )
+    try:
+        pipeline_state = await pipeline.run(
+            conversation_id=conversation_id,
+            organization_id=conv.organization_id if conv else "",
+            raw_segments=raw_segments,
+            full_transcript_text=transcript_result.full_text,
+            language=transcript_result.language,
+            duration_seconds=transcript_result.duration,
+            audio_file_path=file_path,
+            on_step=on_step_callback,
+        )
+    finally:
+        await _close_provider(llm)
 
     # ---- Step 4: Store AI results ----
     update("processing", 90, "Storing AI results")
+
+    # Keep the stored transcript in sync with speaker roles the cleaning agent assigned
+    labels = {
+        seg["sequence_index"]: seg.get("speaker_label")
+        for seg in pipeline_state.get("raw_segments", [])
+        if seg.get("speaker_label")
+    }
+    for ts in db.query(TranscriptSegment).filter(TranscriptSegment.conversation_id == conversation_id):
+        new_label = labels.get(ts.sequence_index)
+        if new_label and new_label != ts.speaker_label:
+            ts.speaker_label = new_label
 
     # Store Summary
     if pipeline_state.get("executive_summary"):
@@ -304,6 +349,8 @@ async def _async_process_conversation(
     # Store Action Items
     org_id = conv.organization_id if conv else ""
     for ai_item in pipeline_state.get("action_items", []):
+        if not ai_item.get("description"):
+            continue
         action = ActionItem(
             id=str(uuid_mod.uuid4()),
             conversation_id=conversation_id,
@@ -439,6 +486,10 @@ async def _async_process_conversation(
         conv.conversation_type = pipeline_state.get("conversation_type", "general_business")
         conv.status = "completed"
 
+    # AI output doesn't always match column types ("00:48" for a float, "High" for an enum)
+    for pending in list(db.new):
+        clean_row(pending)
+
     # Update processing job
     job = db.query(ProcessingJob).filter(ProcessingJob.id == job_id).first()
     if job:
@@ -448,6 +499,13 @@ async def _async_process_conversation(
         job.completed_at = datetime.utcnow()
 
     db.commit()
+
+    # Make the conversation searchable; search failures shouldn't fail the analysis
+    try:
+        from app.ai.rag.indexer import index_conversation
+        await index_conversation(db, conversation_id)
+    except Exception as e:
+        logger.error(f"Indexing failed for {conversation_id}: {e}")
 
     # Send completion notification
     await _create_completion_notification_async(db, conversation_id)

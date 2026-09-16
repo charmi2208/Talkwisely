@@ -5,10 +5,14 @@ Standalone Test Runner for TalkWiseAI.
 import asyncio
 import sys
 import os
+import tempfile
 
 # Add backend directory to sys.path
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, backend_dir)
+
+# Keep test vectors out of the real search index
+os.environ["CHROMA_PERSIST_DIR"] = tempfile.mkdtemp(prefix="talkwise_test_vectors_")
 
 from app.ai.providers.llm.mock_provider import MockLLMProvider
 from app.ai.providers.embedding.mock_provider import MockEmbeddingProvider

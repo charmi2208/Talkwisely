@@ -4,7 +4,17 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Upload, FileText, Trash2, Database } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle,
+} from "@/components/ui/item";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 
 interface KnowledgeDoc {
   id: string;
@@ -115,77 +125,100 @@ export default function KnowledgeBasePage() {
     <AppShell title="Knowledge Base" subtitle="Upload product, sales & support documentation for RAG AI assistance">
       <div className="space-y-6">
         {/* Upload card */}
-        <form onSubmit={handleUpload} className="glass-card p-6 space-y-4">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <Upload className="w-4 h-4 text-indigo-600" />
-            Upload New Document
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <input
-              type="text"
-              placeholder="Document Title (e.g. Sales Objection Playbook)"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-600"
-              required
-            />
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-600"
-            >
-              <option value="sales_playbook">Sales Playbook</option>
-              <option value="pricing">Pricing Matrix</option>
-              <option value="technical">Technical Specs</option>
-              <option value="faq">Customer FAQ</option>
-            </select>
-            <input
-              type="file"
-              accept=".pdf,.docx,.txt,.md"
-              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-              className="bg-white border border-slate-300 rounded-lg px-3.5 py-1.5 text-xs text-slate-600 file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isUploading}
-            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-xs font-semibold text-white shadow-xs transition-colors"
-          >
-            {isUploading ? "Chunking & Indexing..." : "Upload & Index into Vector Store"}
-          </button>
-        </form>
+        <Card>
+          <form onSubmit={handleUpload} className="flex flex-col gap-(--card-spacing)">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Upload className="size-4" />
+                Upload New Document
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Field>
+                <FieldLabel htmlFor="kb-title" className="sr-only">Document Title</FieldLabel>
+                <Input
+                  id="kb-title"
+                  type="text"
+                  placeholder="Document Title (e.g. Sales Objection Playbook)"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="kb-category" className="sr-only">Category</FieldLabel>
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger id="kb-category" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sales_playbook">Sales Playbook</SelectItem>
+                    <SelectItem value="pricing">Pricing Matrix</SelectItem>
+                    <SelectItem value="technical">Technical Specs</SelectItem>
+                    <SelectItem value="faq">Customer FAQ</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="kb-file" className="sr-only">File</FieldLabel>
+                <Input
+                  id="kb-file"
+                  type="file"
+                  accept=".pdf,.docx,.txt,.md"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  required
+                />
+              </Field>
+            </CardContent>
+            <CardFooter>
+              <Button type="submit" size="sm" disabled={isUploading}>
+                {isUploading && <Spinner data-icon="inline-start" />}
+                {isUploading ? "Chunking & Indexing..." : "Upload & Index into Vector Store"}
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
 
         {/* Document List */}
-        <div className="glass-card p-6">
-          <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <Database className="w-4 h-4 text-emerald-600" />
-            Indexed Knowledge Documents ({docs.length})
-          </h3>
-          <div className="space-y-2.5">
-            {docs.map((doc) => (
-              <div key={doc.id} className="flex items-center justify-between p-4 rounded-lg bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-3">
-                  <FileText className="w-5 h-5 text-indigo-600 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{doc.title}</p>
-                    <p className="text-xs text-slate-500">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="size-4" />
+              Indexed Knowledge Documents ({docs.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ItemGroup className="gap-2.5">
+              {docs.map((doc) => (
+                <Item key={doc.id} variant="muted">
+                  <ItemMedia variant="icon">
+                    <FileText className="size-5" />
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle>{doc.title}</ItemTitle>
+                    <ItemDescription className="text-xs">
                       {doc.file_name} • {(doc.file_size_bytes / 1024).toFixed(0)} KB • {doc.chunk_count} vector chunks
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-white text-slate-700 font-semibold capitalize border border-slate-300">
-                    {doc.category}
-                  </span>
-                  <button onClick={() => handleDelete(doc.id)} className="text-slate-400 hover:text-rose-600 transition-colors p-1">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                    <Badge variant="outline" className="capitalize bg-background">
+                      {doc.category}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => handleDelete(doc.id)}
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label="Delete document"
+                    >
+                      <Trash2 />
+                    </Button>
+                  </ItemActions>
+                </Item>
+              ))}
+            </ItemGroup>
+          </CardContent>
+        </Card>
       </div>
     </AppShell>
   );

@@ -10,34 +10,64 @@ Supports ChromaDB with an in-memory cosine fallback for fast local execution.
 """
 
 import math
+import re
 from typing import Any, Optional
-from app.ai.providers.embedding.mock_provider import MockEmbeddingProvider
+
+from app.ai.providers.embedding import get_embedding_provider
 from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger("ai.rag.vector_store")
 
 
+def _where(**conditions: Any) -> dict[str, Any]:
+    """Chroma needs an explicit $and when filtering on more than one field."""
+    clauses = [{k: v} for k, v in conditions.items() if v is not None]
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
+
+
+def _clean_metadata(meta: dict[str, Any]) -> dict[str, Any]:
+    """Chroma metadata values must be primitives and not None."""
+    cleaned = {}
+    for k, v in meta.items():
+        if v is None:
+            continue
+        cleaned[k] = v if isinstance(v, (str, int, float, bool)) else str(v)
+    return cleaned
+
+
 class VectorStore:
     """Vector database manager supporting organization-scoped filtered RAG queries."""
 
     def __init__(self):
-        self.embedding_provider = MockEmbeddingProvider()
+        self.embedding_provider = get_embedding_provider()
         self._fallback_store: list[dict[str, Any]] = []  # List of {id, vector, document, metadata}
         self._chroma_client = None
         self._collection = None
         self._init_chroma()
+
+    @property
+    def is_persistent(self) -> bool:
+        return self._collection is not None
 
     def _init_chroma(self) -> None:
         """Attempt to initialize persistent ChromaDB client."""
         try:
             import chromadb
             self._chroma_client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
+            # One collection per embedding model: vectors from different models aren't comparable
+            suffix = re.sub(r"[^a-zA-Z0-9_-]", "-", self.embedding_provider.provider_name)
             self._collection = self._chroma_client.get_or_create_collection(
-                name="talkwise_rag",
-                metadata={"hnsw:space": "cosine"}
+                name=f"talkwise_rag_{suffix}",
+                metadata={"hnsw:space": "cosine"},
             )
-            logger.info("ChromaDB vector store initialized successfully", path=settings.chroma_persist_dir)
+            logger.info(
+                "ChromaDB vector store initialized",
+                path=settings.chroma_persist_dir,
+                collection=self._collection.name,
+            )
         except Exception as e:
             logger.warning("ChromaDB initialization fallback to in-memory store", error=str(e))
             self._chroma_client = None
@@ -57,31 +87,20 @@ class VectorStore:
 
         if self._collection:
             try:
-                # Sanitize metadatas for Chroma (ensure primitive types)
-                cleaned_metadatas = []
-                for meta in metadatas:
-                    cleaned = {}
-                    for k, v in meta.items():
-                        if isinstance(v, (str, int, float, bool)):
-                            cleaned[k] = v
-                        else:
-                            cleaned[k] = str(v)
-                    cleaned_metadatas.append(cleaned)
-
                 self._collection.upsert(
                     ids=ids,
                     embeddings=embeddings,
                     documents=documents,
-                    metadatas=cleaned_metadatas,
+                    metadatas=[_clean_metadata(m) for m in metadatas],
                 )
                 return
             except Exception as e:
                 logger.error("ChromaDB upsert error, storing in fallback", error=str(e))
 
         # Fallback in-memory storage
+        new_ids = set(ids)
+        self._fallback_store = [item for item in self._fallback_store if item["id"] not in new_ids]
         for doc_id, doc, vec, meta in zip(ids, documents, embeddings, metadatas):
-            # Remove existing duplicate ID
-            self._fallback_store = [item for item in self._fallback_store if item["id"] != doc_id]
             self._fallback_store.append({
                 "id": doc_id,
                 "document": doc,
@@ -99,22 +118,20 @@ class VectorStore:
     ) -> list[dict[str, Any]]:
         """
         Perform semantic similarity search filtered by organization_id and optional parameters.
-        Returns list of {id, document, metadata, score}.
+        Returns list of {id, document, metadata, score} where score is cosine similarity (0-1).
         """
         query_vec = await self.embedding_provider.embed_text(query)
 
         if self._collection:
             try:
-                where_clause: dict[str, Any] = {"organization_id": organization_id}
-                if conversation_id:
-                    where_clause["conversation_id"] = conversation_id
-                if doc_type:
-                    where_clause["doc_type"] = doc_type
-
                 results = self._collection.query(
                     query_embeddings=[query_vec],
                     n_results=limit,
-                    where=where_clause,
+                    where=_where(
+                        organization_id=organization_id,
+                        conversation_id=conversation_id,
+                        doc_type=doc_type,
+                    ),
                 )
                 formatted = []
                 if results and results.get("ids") and len(results["ids"]) > 0:
@@ -124,13 +141,12 @@ class VectorStore:
                     distances = results["distances"][0] if results.get("distances") else []
 
                     for doc_id, doc, meta, dist in zip(ids, docs, metas, distances):
-                        # Convert cosine distance to similarity score
-                        score = round(max(0.0, 1.0 - (dist / 2.0)), 4)
                         formatted.append({
                             "id": doc_id,
                             "document": doc,
                             "metadata": meta,
-                            "score": score,
+                            # Cosine distance -> similarity
+                            "score": round(max(0.0, 1.0 - dist), 4),
                         })
                 return formatted
             except Exception as e:
@@ -157,6 +173,18 @@ class VectorStore:
 
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:limit]
+
+    async def count(self, **conditions: Any) -> int:
+        """Number of stored chunks matching the given metadata."""
+        if self._collection:
+            try:
+                return len(self._collection.get(where=_where(**conditions), include=[])["ids"])
+            except Exception as e:
+                logger.error("ChromaDB count failed", error=str(e))
+        return sum(
+            1 for item in self._fallback_store
+            if all(item["metadata"].get(k) == v for k, v in conditions.items() if v is not None)
+        )
 
     async def delete_by_conversation(self, conversation_id: str) -> None:
         """Delete all vectors for a deleted conversation."""

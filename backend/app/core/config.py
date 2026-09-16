@@ -15,8 +15,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables."""
 
+    # .env.local (git-ignored) holds real secrets and overrides the committed .env
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", ".env.local"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -54,16 +55,24 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 4096
-    llm_base_url: str = ""  # For OpenAI-compatible APIs
+    llm_base_url: str = ""  # For OpenAI-compatible APIs (e.g. Groq: https://api.groq.com/openai/v1)
+    llm_max_concurrency: int = 3  # Parallel LLM calls; keeps free-tier rate limits happy
+    llm_reasoning_effort: str = ""  # low | medium | high — only for reasoning models (e.g. openai/gpt-oss-*)
 
     # ---- Embedding Provider ----
-    embedding_provider: Literal["openai", "sentence_transformers", "mock"] = "mock"
+    # local = ONNX all-MiniLM-L6-v2 bundled with chromadb (no API key, runs on CPU)
+    embedding_provider: Literal["openai", "local", "mock"] = "mock"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimension: int = 1536
 
     # ---- Speech-to-Text ----
     stt_provider: Literal["whisper_local", "whisper_api", "mock"] = "mock"
     whisper_model: str = "base"
+    # whisper_api: any OpenAI-compatible transcription endpoint. Falls back to the LLM key/base URL.
+    stt_api_key: str = ""
+    stt_base_url: str = ""
+    stt_api_model: str = "whisper-large-v3-turbo"
+    stt_max_upload_mb: int = 25
 
     # ---- File Storage ----
     storage_provider: Literal["local", "s3"] = "local"

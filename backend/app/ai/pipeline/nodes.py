@@ -59,6 +59,35 @@ async def _safe_call_agent(
 # Node: Clean and validate transcript
 # ---------------------------------------------------------------------------
 
+MAX_ATTRIBUTION_SEGMENTS = 150
+
+
+async def _attribute_speaker_roles(llm: LLMProvider, segments: list[dict]) -> dict[int, str]:
+    """Ask the model who said each line. Returns {sequence_index: role}; empty on failure."""
+    subset = segments[:MAX_ATTRIBUTION_SEGMENTS]
+    numbered = "\n".join(f"{s['sequence_index']}. {s.get('text', '')}" for s in subset)
+    system = (
+        "You label who is speaking in a business call transcript that has no speaker information. "
+        "Use short role names such as 'Sales Representative', 'Customer', 'Support Agent', 'Manager'. "
+        "Base each label only on the content and the flow of the dialogue; consecutive lines may belong "
+        "to the same person. Use at most 4 distinct roles. "
+        'Return JSON: {"segments": [{"i": <line number>, "speaker": <role>}]} covering every line.'
+    )
+    result = await _safe_call_agent(llm, system, numbered, "speaker_attribution")
+    roles: dict[int, str] = {}
+    for item in result.get("segments", []) if isinstance(result.get("segments"), list) else []:
+        try:
+            idx, speaker = int(item["i"]), str(item["speaker"]).strip()
+        except (KeyError, TypeError, ValueError):
+            continue
+        if speaker:
+            roles[idx] = speaker[:50]
+    if len({*roles.values()}) > 4:
+        logger.warning("Speaker attribution returned too many roles; keeping pause-based labels")
+        return {}
+    return roles
+
+
 async def node_clean_transcript(state: ConversationState, llm: LLMProvider) -> dict:
     """Agent 1 — Clean raw transcript segments."""
     logger.info("Running transcript cleaning agent")
@@ -80,6 +109,13 @@ async def node_clean_transcript(state: ConversationState, llm: LLMProvider) -> d
         labeled["speaker_label"] = speaker_labels.get(seg.get("speaker", ""), "Speaker 1")
         labeled["sequence_index"] = i
         labeled_segments.append(labeled)
+
+    # Hosted STT can't tell voices apart, so let the model attribute lines by what is said
+    if llm.provider_name != "mock" and labeled_segments:
+        roles = await _attribute_speaker_roles(llm, labeled_segments)
+        for seg in labeled_segments:
+            if seg["sequence_index"] in roles:
+                seg["speaker_label"] = roles[seg["sequence_index"]]
 
     return {
         "raw_segments": labeled_segments,

@@ -75,7 +75,7 @@ class MockLLMProvider(LLMProvider):
                 "1. **Acme Corp** (Enterprise PBX Discovery Call): Discussed enterprise cloud migration, 200 seats pricing proposal ($25,000–$50,000 range), and CRM webhooks.\n"
                 "2. **Nexus Telecom** (Contact Center Technical Review): Evaluated AI call analytics and virtual numbers integration.\n"
                 "3. **Global Logistics**: High purchase intent for VoIP trunking & UK virtual numbers ($40,000+ budget).\n\n"
-                "💡 **Recommendation**: High-intent lead Acme Corp is awaiting proposal confirmation. Follow up by Friday."
+                "**Recommendation**: High-intent lead Acme Corp is awaiting proposal confirmation. Follow up by Friday."
             )
         mock = self._generate_mock_json(system_prompt)
         return json.dumps(mock, indent=2)

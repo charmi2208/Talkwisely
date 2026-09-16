@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Phone, Database, Calendar, Mail, CheckCircle, RefreshCw, Zap } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle,
+} from "@/components/ui/card";
 
 interface IntegrationItem {
   name: string;
@@ -101,66 +106,60 @@ export default function IntegrationsPage() {
     <AppShell title="Integrations & Adapters" subtitle="Manage TalkWisely Cloud PBX, CRM, Calendar, and Email provider connections">
       <div className="space-y-6">
         {/* TalkWisely PBX Spotlight Banner */}
-        <div className="glass-card p-6 bg-indigo-50/60 border border-indigo-100 flex items-center justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Phone className="w-5 h-5 text-indigo-600" />
-              <h3 className="text-base font-bold text-slate-900">TalkWisely Cloud PBX Integration</h3>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold border border-indigo-200">
-                Primary VoIP Adapter
-              </span>
-            </div>
-            <p className="text-xs text-slate-600">
+        <Card className="bg-muted/50">
+          <CardHeader>
+            <CardTitle className="flex flex-wrap items-center gap-2">
+              <Phone className="size-5" />
+              TalkWisely Cloud PBX Integration
+              <Badge variant="secondary">Primary VoIP Adapter</Badge>
+            </CardTitle>
+            <CardDescription className="text-xs">
               Ingest VoIP call recordings, call metadata, virtual UK/USA business phone numbers, and contact center logs directly into TalkWiseAI.
-            </p>
-          </div>
-          <button
-            onClick={handleSyncTalkWisely}
-            disabled={syncingTalkwisely}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-xs font-semibold text-white transition-all shadow-xs flex-shrink-0"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${syncingTalkwisely ? "animate-spin" : ""}`} />
-            {syncingTalkwisely ? "Syncing PBX..." : "Sync TalkWisely Calls"}
-          </button>
-        </div>
+            </CardDescription>
+            <CardAction>
+              <Button size="sm" onClick={handleSyncTalkWisely} disabled={syncingTalkwisely}>
+                <RefreshCw data-icon="inline-start" className={syncingTalkwisely ? "animate-spin" : ""} />
+                {syncingTalkwisely ? "Syncing PBX..." : "Sync TalkWisely Calls"}
+              </Button>
+            </CardAction>
+          </CardHeader>
+        </Card>
 
         {/* Integration Adapter Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {integrations.map((item) => {
             const IconComp = icons[item.provider_key] || Zap;
             return (
-              <div key={item.provider_key} className="glass-card p-6 flex flex-col justify-between space-y-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
-                        <IconComp className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-slate-900">{item.name}</h4>
-                        <span className="text-[10px] text-slate-500 font-medium">
-                          {item.is_mock ? "Mock Provider Adapter Active" : "Production Provider API Active"}
-                        </span>
-                      </div>
+              <Card key={item.provider_key}>
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="size-9 rounded-lg border bg-muted flex items-center justify-center">
+                      <IconComp className="size-5" />
                     </div>
-                    <span className="flex items-center gap-1.5 text-xs text-emerald-700 font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200">
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      Connected
-                    </span>
+                    <div>
+                      <CardTitle className="text-sm">{item.name}</CardTitle>
+                      <CardDescription className="text-[10px] font-medium">
+                        {item.is_mock ? "Mock Provider Adapter Active" : "Production Provider API Active"}
+                      </CardDescription>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-600 leading-relaxed">{item.description}</p>
-                </div>
-
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs text-slate-500">
+                  <CardAction>
+                    <Badge variant="outline">
+                      <CheckCircle data-icon="inline-start" className="text-success" />
+                      Connected
+                    </Badge>
+                  </CardAction>
+                </CardHeader>
+                <CardContent className="flex-1">
+                  <p className="text-xs text-muted-foreground leading-relaxed">{item.description}</p>
+                </CardContent>
+                <CardFooter className="border-t justify-between text-xs text-muted-foreground">
                   <span>Last sync: {item.last_synced_at ? new Date(item.last_synced_at).toLocaleTimeString() : "Recent"}</span>
-                  <button
-                    onClick={() => handleTestConnection(item.provider_key)}
-                    className="text-indigo-600 hover:text-indigo-700 font-semibold transition-colors"
-                  >
+                  <Button variant="link" size="xs" className="px-0" onClick={() => handleTestConnection(item.provider_key)}>
                     Test Connection
-                  </button>
-                </div>
-              </div>
+                  </Button>
+                </CardFooter>
+              </Card>
             );
           })}
         </div>

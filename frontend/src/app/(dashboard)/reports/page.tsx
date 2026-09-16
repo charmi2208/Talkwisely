@@ -2,9 +2,15 @@
 
 import { useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { Download, Sparkles, Loader2 } from "lucide-react";
+import { Download, Sparkles } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
 
 export default function ReportsPage() {
   const [reportType, setReportType] = useState("executive");
@@ -43,100 +49,124 @@ export default function ReportsPage() {
     }
   };
 
-  const handleDownloadCSV = () => {
-    window.open(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1"}/reports/export/csv`, "_blank");
+  const [exporting, setExporting] = useState(false);
+
+  const handleDownloadCSV = async () => {
+    setExporting(true);
+    try {
+      // Goes through apiClient so the Bearer token is attached
+      const res = await apiClient.get<Blob>("/reports/export/csv", { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "talkwise_conversations_report.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Couldn't export the CSV. Please try again.");
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
     <AppShell title="Executive Reports" subtitle="Synthesize conversation analytics into management reports & export data">
       <div className="space-y-6">
         {/* Form */}
-        <form onSubmit={handleGenerate} className="glass-card p-6 flex flex-col md:flex-row items-center gap-4">
-          <div className="flex-1 space-y-1">
-            <label className="text-xs font-semibold text-slate-600">Report Type</label>
-            <select
-              value={reportType}
-              onChange={(e) => setReportType(e.target.value)}
-              className="w-full bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-600"
-            >
-              <option value="executive">Executive Summary Report</option>
-              <option value="sales">Sales Performance Report</option>
-              <option value="sentiment_objections">Sentiment & Objection Analysis</option>
-              <option value="team_qa">Team QA & Coaching Report</option>
-            </select>
-          </div>
+        <Card>
+          <CardContent>
+            <form onSubmit={handleGenerate} className="flex flex-col md:flex-row md:items-end gap-4">
+              <Field className="flex-1 gap-1.5">
+                <FieldLabel htmlFor="report-type" className="text-xs">Report Type</FieldLabel>
+                <Select value={reportType} onValueChange={setReportType}>
+                  <SelectTrigger id="report-type" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="executive">Executive Summary Report</SelectItem>
+                    <SelectItem value="sales">Sales Performance Report</SelectItem>
+                    <SelectItem value="sentiment_objections">Sentiment & Objection Analysis</SelectItem>
+                    <SelectItem value="team_qa">Team QA & Coaching Report</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
 
-          <div className="flex-1 space-y-1">
-            <label className="text-xs font-semibold text-slate-600">Time Period</label>
-            <select
-              value={timePeriod}
-              onChange={(e) => setTimePeriod(e.target.value)}
-              className="w-full bg-white border border-slate-300 rounded-lg px-3.5 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-600"
-            >
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-            </select>
-          </div>
+              <Field className="flex-1 gap-1.5">
+                <FieldLabel htmlFor="time-period" className="text-xs">Time Period</FieldLabel>
+                <Select value={timePeriod} onValueChange={setTimePeriod}>
+                  <SelectTrigger id="time-period" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
 
-          <div className="flex items-center gap-3 pt-5">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-xs font-semibold text-white transition-all shadow-xs"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              Synthesize Report
-            </button>
-            <button
-              type="button"
-              onClick={handleDownloadCSV}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 transition-colors shadow-xs"
-            >
-              <Download className="w-4 h-4" />
-              Export CSV
-            </button>
-          </div>
-        </form>
+              <div className="flex items-center gap-3">
+                <Button type="submit" disabled={loading}>
+                  {loading ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
+                  Synthesize Report
+                </Button>
+                <Button type="button" variant="outline" onClick={handleDownloadCSV} disabled={exporting}>
+                  {exporting ? <Spinner data-icon="inline-start" /> : <Download data-icon="inline-start" />}
+                  Export CSV
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
 
         {/* Report Output */}
         {report && (
-          <div className="glass-card p-8 space-y-6">
-            <h2 className="text-xl font-bold text-slate-900 border-b border-slate-200 pb-3">{report.title}</h2>
+          <Card className="[--card-spacing:--spacing(8)]">
+            <CardHeader className="border-b">
+              <CardTitle className="text-xl font-semibold">{report.title}</CardTitle>
+            </CardHeader>
 
-            <div>
-              <h3 className="text-xs font-bold text-indigo-600 uppercase tracking-wide mb-2">Executive Summary</h3>
-              <p className="text-sm text-slate-700 leading-relaxed">{report.executive_summary}</p>
-            </div>
-
-            {report.key_insights?.length > 0 && (
+            <CardContent className="gap-6">
               <div>
-                <h3 className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-2">Key Highlights</h3>
-                <ul className="space-y-1.5">
-                  {report.key_insights.map((insight: string, idx: number) => (
-                    <li key={idx} className="text-sm text-slate-700 flex items-start gap-2">
-                      <span className="text-emerald-600 font-bold">•</span>
-                      {insight}
-                    </li>
-                  ))}
-                </ul>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Executive Summary</h3>
+                <p className="text-sm leading-relaxed">{report.executive_summary}</p>
               </div>
-            )}
 
-            {report.strategic_recommendations?.length > 0 && (
-              <div>
-                <h3 className="text-xs font-bold text-purple-700 uppercase tracking-wide mb-2">Strategic Recommendations</h3>
-                <ul className="space-y-1.5">
-                  {report.strategic_recommendations.map((rec: string, idx: number) => (
-                    <li key={idx} className="text-sm text-slate-700 flex items-start gap-2">
-                      <span className="text-purple-600 font-bold">{idx + 1}.</span>
-                      {rec}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
+              {report.key_insights?.length > 0 && (
+                <>
+                  <Separator />
+                  <div>
+                    <h3 className="text-xs font-semibold text-success uppercase tracking-wide mb-2">Key Highlights</h3>
+                    <ul className="space-y-1.5">
+                      {report.key_insights.map((insight: string, idx: number) => (
+                        <li key={idx} className="text-sm flex items-start gap-2">
+                          <span className="text-success font-bold">•</span>
+                          {insight}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </>
+              )}
+
+              {report.strategic_recommendations?.length > 0 && (
+                <>
+                  <Separator />
+                  <div>
+                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Strategic Recommendations</h3>
+                    <ul className="space-y-1.5">
+                      {report.strategic_recommendations.map((rec: string, idx: number) => (
+                        <li key={idx} className="text-sm flex items-start gap-2">
+                          <span className="font-bold tabular-nums">{idx + 1}.</span>
+                          {rec}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
         )}
       </div>
     </AppShell>

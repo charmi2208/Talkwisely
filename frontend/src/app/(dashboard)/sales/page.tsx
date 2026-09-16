@@ -5,7 +5,12 @@ import { AppShell } from "@/components/layout/AppShell";
 import { TrendingUp, Target, Shield, RefreshCw, Filter, DollarSign } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
 import Link from "next/link";
-import { clsx } from "clsx";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle,
+} from "@/components/ui/card";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 interface SalesLead {
   conversation_id: string;
@@ -100,118 +105,84 @@ export default function SalesPage() {
       <div className="space-y-6">
         {/* Metric cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="glass-card p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-500">High Intent Leads</span>
-              <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100">
-                <Target className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-3xl font-extrabold text-slate-900">{highIntentCount}</p>
-            <p className="text-xs text-slate-400 mt-0.5">Ready for closing</p>
-          </div>
-
-          <div className="glass-card p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-500">Avg Lead Score</span>
-              <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100">
-                <TrendingUp className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-3xl font-extrabold text-indigo-600">{avgLeadScore}</p>
-            <p className="text-xs text-slate-400 mt-0.5">Out of 100 max score</p>
-          </div>
-
-          <div className="glass-card p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-500">Active Deals</span>
-              <div className="p-2 rounded-lg bg-purple-50 text-purple-600 border border-purple-100">
-                <DollarSign className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-3xl font-extrabold text-slate-900">{safeLeads.length}</p>
-            <p className="text-xs text-slate-400 mt-0.5">Under AI evaluation</p>
-          </div>
-
-          <div className="glass-card p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-500">Healthy Deals</span>
-              <div className="p-2 rounded-lg bg-amber-50 text-amber-600 border border-amber-100">
-                <Shield className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-3xl font-extrabold text-amber-600">
-              {safeLeads.filter((l) => l.deal_health === "healthy").length}
-            </p>
-            <p className="text-xs text-slate-400 mt-0.5">Low risk indicator</p>
-          </div>
+          {[
+            { label: "High Intent Leads", value: highIntentCount, hint: "Ready for closing", icon: Target },
+            { label: "Avg Lead Score", value: avgLeadScore, hint: "Out of 100 max score", icon: TrendingUp },
+            { label: "Active Deals", value: safeLeads.length, hint: "Under AI evaluation", icon: DollarSign },
+            { label: "Healthy Deals", value: safeLeads.filter((l) => l.deal_health === "healthy").length, hint: "Low risk indicator", icon: Shield },
+          ].map((metric) => (
+            <Card key={metric.label}>
+              <CardHeader>
+                <CardDescription>{metric.label}</CardDescription>
+                <CardTitle className="text-3xl font-semibold tabular-nums">{metric.value}</CardTitle>
+                <CardAction>
+                  <metric.icon className="size-4 text-muted-foreground" />
+                </CardAction>
+              </CardHeader>
+              <CardFooter className="text-xs text-muted-foreground">{metric.hint}</CardFooter>
+            </Card>
+          ))}
         </div>
 
         {/* Filter bar */}
-        <div className="flex items-center justify-between gap-4 glass-card p-4">
-          <div className="flex items-center gap-2 overflow-x-auto">
-            <Filter className="w-4 h-4 text-slate-400 mr-1 flex-shrink-0" />
-            {stages.map((st) => (
-              <button
-                key={st.id}
-                onClick={() => setStageFilter(st.id)}
-                className={clsx(
-                  "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex-shrink-0",
-                  stageFilter === st.id
-                    ? "bg-indigo-600 text-white shadow-xs"
-                    : "bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200"
-                )}
+        <Card size="sm">
+          <CardContent className="flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2 overflow-x-auto">
+              <Filter className="size-4 text-muted-foreground mr-1 shrink-0" />
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={stageFilter}
+                onValueChange={(v) => v && setStageFilter(v)}
               >
-                {st.label}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={loadSalesData}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-700 transition-colors shadow-xs"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </button>
-        </div>
+                {stages.map((st) => (
+                  <ToggleGroupItem key={st.id} value={st.id} className="text-xs">
+                    {st.label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+            <Button variant="outline" size="sm" onClick={loadSalesData}>
+              <RefreshCw data-icon="inline-start" />
+              Refresh
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* Sales Pipeline Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredLeads.map((lead) => (
             <Link key={lead.conversation_id} href={`/conversations/${lead.conversation_id}`} className="group">
-              <div className="glass-card p-5 hover:border-slate-300 transition-all space-y-4">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors line-clamp-2">
-                    {lead.title}
-                  </h3>
-                  <div className="text-right flex-shrink-0">
-                    <span className="text-xl font-extrabold text-indigo-600">{lead.lead_score ?? "N/A"}</span>
-                    <span className="text-[10px] font-semibold text-slate-400 block uppercase">score</span>
-                  </div>
-                </div>
+              <Card className="h-full transition-colors group-hover:bg-muted/40">
+                <CardHeader>
+                  <CardTitle className="line-clamp-2">{lead.title}</CardTitle>
+                  <CardAction className="text-right">
+                    <span className="text-xl font-semibold tabular-nums">{lead.lead_score ?? "N/A"}</span>
+                    <span className="text-[10px] font-semibold text-muted-foreground block uppercase">score</span>
+                  </CardAction>
+                </CardHeader>
 
-                <div className="flex items-center gap-2">
-                  <span className={clsx("text-xs px-2.5 py-0.5 rounded-full font-semibold capitalize border",
-                    lead.purchase_intent === "high" ? "badge-positive" :
-                    lead.purchase_intent === "medium" ? "badge-neutral" : "badge-negative"
-                  )}>
+                <CardContent className="flex-row items-center gap-2">
+                  <Badge
+                    variant={lead.purchase_intent === "high" ? "secondary" : lead.purchase_intent === "medium" ? "outline" : "destructive"}
+                    className="capitalize"
+                  >
                     {lead.purchase_intent} intent
-                  </span>
-
-                  <span className={clsx("text-xs px-2.5 py-0.5 rounded-full font-semibold capitalize border",
-                    lead.deal_health === "healthy" ? "border-emerald-200 text-emerald-700 bg-emerald-50" : "border-amber-200 text-amber-700 bg-amber-50"
-                  )}>
+                  </Badge>
+                  <Badge variant="outline" className="capitalize">
+                    <span className={lead.deal_health === "healthy" ? "size-1.5 rounded-full bg-emerald-500" : "size-1.5 rounded-full bg-amber-500"} />
                     {lead.deal_health?.replace("_", " ")}
-                  </span>
-                </div>
+                  </Badge>
+                </CardContent>
 
                 {lead.budget_range && (
-                  <div className="flex items-center gap-2 text-xs text-slate-500 pt-2 border-t border-slate-100">
-                    <DollarSign className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Budget: <strong className="text-slate-800 font-semibold">{lead.budget_range}</strong></span>
-                  </div>
+                  <CardFooter className="border-t gap-2 text-xs text-muted-foreground">
+                    <DollarSign className="size-3.5" />
+                    <span>Budget: <strong className="text-foreground font-semibold">{lead.budget_range}</strong></span>
+                  </CardFooter>
                 )}
-              </div>
+              </Card>
             </Link>
           ))}
         </div>

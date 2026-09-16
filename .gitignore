@@ -1,0 +1,15 @@
+# OS / editor
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+backend/venv/
+
+# Local secrets and machine-specific settings (see backend/.env.local.example)
+backend/.env.local
+
+# Runtime data
+backend/vector_store/
+backend/storage/uploads/
+backend/storage/kb/

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.agents.copilot_agent import CopilotAgent
 from app.ai.agents.email_agent import EmailGenerationAgent
-from app.ai.pipeline.graph import get_llm_provider
+from app.ai.pipeline.graph import llm_session
 from app.core.dependencies import get_current_user, get_db
 from app.core.logging import get_logger
 
@@ -67,16 +67,16 @@ async def copilot_chat(
     if not payload.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-    llm = get_llm_provider()
-    agent = CopilotAgent(llm)
+    async with llm_session() as llm:
+        agent = CopilotAgent(llm)
 
-    result = await agent.answer_question(
-        query=payload.query.strip(),
-        organization_id=current_user.organization_id,
-        conversation_id=payload.conversation_id,
-        chat_history=payload.chat_history,
-        db_session=db,
-    )
+        result = await agent.answer_question(
+            query=payload.query.strip(),
+            organization_id=current_user.organization_id,
+            conversation_id=payload.conversation_id,
+            chat_history=payload.chat_history,
+            db_session=db,
+        )
 
     return CopilotChatResponse(
         answer=result["answer"],
@@ -132,19 +132,19 @@ async def generate_email(
 
     action_dicts = [{"description": a.description} for a in action_items]
 
-    llm = get_llm_provider()
-    agent = EmailGenerationAgent(llm)
+    async with llm_session() as llm:
+        agent = EmailGenerationAgent(llm)
 
-    result = await agent.generate_email(
-        conversation_title=conv.title,
-        summary=summary_dict,
-        action_items=action_dicts,
-        sales_insight=sales_dict,
-        email_type=payload.email_type,
-        tone=payload.tone,
-        recipient_name=payload.recipient_name,
-        sender_name=payload.sender_name or current_user.full_name,
-    )
+        result = await agent.generate_email(
+            conversation_title=conv.title,
+            summary=summary_dict,
+            action_items=action_dicts,
+            sales_insight=sales_dict,
+            email_type=payload.email_type,
+            tone=payload.tone,
+            recipient_name=payload.recipient_name,
+            sender_name=payload.sender_name or current_user.full_name,
+        )
 
     return GenerateEmailResponse(**result)
 
@@ -194,13 +194,13 @@ async def natural_language_query(
         }
 
     # Fallback to copilot search
-    llm = get_llm_provider()
-    agent = CopilotAgent(llm)
-    res = await agent.answer_question(
-        query=payload.query,
-        organization_id=current_user.organization_id,
-        db_session=db,
-    )
+    async with llm_session() as llm:
+        agent = CopilotAgent(llm)
+        res = await agent.answer_question(
+            query=payload.query,
+            organization_id=current_user.organization_id,
+            db_session=db,
+        )
     return {
         "query_type": "rag_search",
         "answer": res["answer"],

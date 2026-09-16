@@ -5,13 +5,34 @@ import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { conversationsApi } from "@/lib/api/conversations";
 import {
-  ArrowLeft, Loader2, RefreshCw, CheckCircle, TrendingUp,
+  ArrowLeft, RefreshCw, CheckCircle, TrendingUp,
   MessageSquare, BarChart3, Shield, Lightbulb, AlertTriangle,
-  Star, Trash2, Volume2
+  Star, Trash2, Volume2, Database, Bot
 } from "lucide-react";
 import Link from "next/link";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
 import { clsx } from "clsx";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle,
+} from "@/components/ui/card";
+import {
+  Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle,
+} from "@/components/ui/item";
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ConversationChat } from "@/components/conversation/ConversationChat";
+import { CrmProposalsPanel } from "@/components/conversation/CrmProposalsPanel";
+import { FollowUpEmailDialog } from "@/components/conversation/FollowUpEmailDialog";
 
 // Processing state poller
 function useProcessingPoller(conversationId: string, initialStatus: string, onComplete: () => void) {
@@ -48,21 +69,40 @@ function ScoreBar({ score, label }: { score: number; label: string }) {
   const w = Math.min(100, Math.max(0, score));
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs font-medium text-slate-600 w-32 flex-shrink-0">{label}</span>
-      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
-        <div
-          className={clsx("h-full rounded-full", w >= 80 ? "bg-emerald-500" : w >= 60 ? "bg-amber-500" : "bg-rose-500")}
-          style={{ width: `${w}%` }}
-        />
-      </div>
-      <span className="text-xs font-bold text-slate-900 w-8 text-right">{score}</span>
+      <span className="text-xs font-medium text-muted-foreground w-32 shrink-0">{label}</span>
+      <Progress
+        value={w}
+        className={clsx("h-2 flex-1",
+          w >= 80 ? "*:data-[slot=progress-indicator]:bg-emerald-500" :
+          w >= 60 ? "*:data-[slot=progress-indicator]:bg-amber-500" :
+          "*:data-[slot=progress-indicator]:bg-destructive"
+        )}
+      />
+      <span className="text-xs font-semibold w-8 text-right tabular-nums">{score}</span>
     </div>
   );
 }
 
 function SentimentBadge({ sentiment }: { sentiment: string }) {
-  const cls = sentiment === "positive" ? "badge-positive" : sentiment === "negative" ? "badge-negative" : "badge-neutral";
-  return <span className={clsx("text-xs px-2.5 py-0.5 rounded-full font-semibold capitalize border", cls)}>{sentiment}</span>;
+  return (
+    <Badge
+      variant={sentiment === "negative" ? "destructive" : sentiment === "positive" ? "secondary" : "outline"}
+      className="capitalize"
+    >
+      {sentiment}
+    </Badge>
+  );
+}
+
+function LevelBadge({ level, className }: { level: string; className?: string }) {
+  return (
+    <Badge
+      variant={level === "urgent" || level === "high" ? "destructive" : level === "medium" ? "secondary" : "outline"}
+      className={clsx("capitalize", className)}
+    >
+      {level}
+    </Badge>
+  );
 }
 
 export default function ConversationDetailPage() {
@@ -129,13 +169,15 @@ export default function ConversationDetailPage() {
     { id: "actions", label: "Actions", icon: CheckCircle },
     { id: "agent", label: "Agent Score", icon: Star },
     { id: "minutes", label: "Meeting Minutes", icon: BarChart3 },
+    { id: "crm", label: "CRM Updates", icon: Database },
+    { id: "chat", label: "Ask AI", icon: Bot },
   ];
 
   if (loading) {
     return (
       <AppShell title="Loading..." >
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          <Spinner className="size-8" />
         </div>
       </AppShell>
     );
@@ -144,7 +186,7 @@ export default function ConversationDetailPage() {
   if (!conversation) {
     return (
       <AppShell title="Not Found">
-        <div className="text-center py-16 text-slate-500">Conversation not found.</div>
+        <div className="text-center py-16 text-muted-foreground">Conversation not found.</div>
       </AppShell>
     );
   }
@@ -152,7 +194,6 @@ export default function ConversationDetailPage() {
   const isProcessing = ["processing", "transcribing", "analyzing", "queued", "uploaded"].includes(conversation.status);
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this conversation?")) return;
     try {
       await conversationsApi.delete(id);
       toast.success("Conversation deleted");
@@ -169,461 +210,550 @@ export default function ConversationDetailPage() {
     >
       <div className="space-y-6">
         {/* Header bar */}
-        <div className="flex items-center gap-4">
-          <Link
-            href="/conversations"
-            className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </Link>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" asChild>
+            <Link href="/conversations">
+              <ArrowLeft data-icon="inline-start" />
+              Back
+            </Link>
+          </Button>
           <div className="flex-1" />
-          <button
-            onClick={handleDelete}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-sm font-semibold text-rose-700 hover:bg-rose-100 transition-all shadow-xs"
-          >
-            <Trash2 className="w-4 h-4" />
-            Delete
-          </button>
-          <button
-            onClick={loadConversation}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-xs transition-all"
-          >
-            <RefreshCw className="w-4 h-4" />
+          {conversation.status === "completed" && <FollowUpEmailDialog conversationId={id} />}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" size="sm">
+                <Trash2 data-icon="inline-start" />
+                Delete
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete conversation?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to delete this conversation?
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" onClick={handleDelete}>
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          <Button variant="outline" size="sm" onClick={loadConversation}>
+            <RefreshCw data-icon="inline-start" />
             Refresh
-          </button>
+          </Button>
         </div>
 
         {/* Processing state */}
         {isProcessing && (
-          <div className="glass-card p-6 border-indigo-100 bg-indigo-50/30">
-            <div className="flex items-center gap-3 mb-4">
-              <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
-              <div>
-                <p className="text-sm font-bold text-slate-900">Processing your recording...</p>
-                <p className="text-xs text-slate-500">{step}</p>
-              </div>
-              <span className="ml-auto text-sm font-bold text-indigo-600">{progress}%</span>
-            </div>
-            <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-indigo-600 rounded-full transition-all duration-500"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <p className="text-xs text-slate-500 mt-3">
-              AI is running 15+ specialized agents in parallel. This may take 1-3 minutes.
-            </p>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-3">
+                <Spinner className="size-5" />
+                Processing your recording...
+              </CardTitle>
+              <CardDescription>{step}</CardDescription>
+              <CardAction className="text-sm font-semibold tabular-nums">{progress}%</CardAction>
+            </CardHeader>
+            <CardContent>
+              <Progress value={progress} className="h-2" />
+              <p className="text-xs text-muted-foreground mt-1">
+                AI is running 15+ specialized agents in parallel. This may take 1-3 minutes.
+              </p>
+            </CardContent>
+          </Card>
         )}
 
         {/* Failed state */}
         {conversation.status === "failed" && (
-          <div className="glass-card p-6 border-rose-200 bg-rose-50">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-rose-600" />
-              <div>
-                <p className="text-sm font-bold text-rose-700">Processing Failed</p>
-                <p className="text-xs text-rose-600">{conversation.error_message || "An error occurred during processing"}</p>
-              </div>
-            </div>
-          </div>
+          <Alert variant="destructive">
+            <AlertTriangle />
+            <AlertTitle>Processing Failed</AlertTitle>
+            <AlertDescription>{conversation.error_message || "An error occurred during processing"}</AlertDescription>
+          </Alert>
         )}
 
         {/* Key metrics (when completed) */}
         {conversation.status === "completed" && insights && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {insights.sentiment && (
-              <div className="glass-card p-4">
-                <p className="text-xs font-semibold text-slate-500 mb-2">Overall Sentiment</p>
-                <SentimentBadge sentiment={insights.sentiment.overall_sentiment} />
-                <p className="text-xs text-slate-400 mt-1">
-                  Score: {insights.sentiment.overall_score?.toFixed(2)}
-                </p>
-              </div>
+              <Card size="sm">
+                <CardHeader>
+                  <CardDescription>Overall Sentiment</CardDescription>
+                </CardHeader>
+                <CardContent className="items-start gap-1">
+                  <SentimentBadge sentiment={insights.sentiment.overall_sentiment} />
+                  <p className="text-xs text-muted-foreground">
+                    Score: {insights.sentiment.overall_score?.toFixed(2)}
+                  </p>
+                </CardContent>
+              </Card>
             )}
             {insights.sales_insight?.lead_score && (
-              <div className="glass-card p-4">
-                <p className="text-xs font-semibold text-slate-500 mb-1">Lead Score</p>
-                <p className="text-3xl font-extrabold text-indigo-600">{insights.sales_insight.lead_score}</p>
-                <p className="text-xs text-slate-400">/100</p>
-              </div>
+              <Card size="sm">
+                <CardHeader>
+                  <CardDescription>Lead Score</CardDescription>
+                  <CardTitle className="text-3xl font-semibold tabular-nums">{insights.sales_insight.lead_score}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">/100</p>
+                </CardContent>
+              </Card>
             )}
             {insights.intent && (
-              <div className="glass-card p-4">
-                <p className="text-xs font-semibold text-slate-500 mb-1">Primary Intent</p>
-                <p className="text-sm font-bold text-slate-900 capitalize">
-                  {insights.intent.primary_intent?.replace("_", " ")}
-                </p>
-                <p className="text-xs text-slate-400">{Math.round((insights.intent.confidence || 0) * 100)}% confident</p>
-              </div>
+              <Card size="sm">
+                <CardHeader>
+                  <CardDescription>Primary Intent</CardDescription>
+                  <CardTitle className="capitalize">
+                    {insights.intent.primary_intent?.replace("_", " ")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">{Math.round((insights.intent.confidence || 0) * 100)}% confident</p>
+                </CardContent>
+              </Card>
             )}
             {insights.action_items && (
-              <div className="glass-card p-4">
-                <p className="text-xs font-semibold text-slate-500 mb-1">Action Items</p>
-                <p className="text-3xl font-extrabold text-amber-600">{insights.action_items.length}</p>
-                <p className="text-xs text-slate-400">tasks identified</p>
-              </div>
+              <Card size="sm">
+                <CardHeader>
+                  <CardDescription>Action Items</CardDescription>
+                  <CardTitle className="text-3xl font-semibold tabular-nums">{insights.action_items.length}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">tasks identified</p>
+                </CardContent>
+              </Card>
             )}
           </div>
         )}
 
         {/* Audio Player Card */}
         {conversation.file_name && (
-          <div className="glass-card p-4 flex flex-col sm:flex-row items-center gap-4 bg-slate-50/50 border-slate-200">
-            <div className="w-10 h-10 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center flex-shrink-0">
-              <Volume2 className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-slate-900 truncate">{conversation.file_name || "Audio Recording"}</p>
-              <p className="text-xs text-slate-500">Audio playback stream</p>
-            </div>
-            {audioSrc ? (
-              <audio
-                controls
-                src={audioSrc}
-                className="w-full sm:w-80 h-9 rounded-md"
-              />
-            ) : (
-              <div className="flex items-center gap-2 text-xs text-slate-500 font-medium py-1.5 px-3 rounded-lg bg-slate-100 border border-slate-200">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                Loading audio stream...
-              </div>
-            )}
-          </div>
+          <Item variant="outline" className="bg-card flex-col sm:flex-row">
+            <ItemMedia variant="icon" className="size-10 rounded-lg bg-muted">
+              <Volume2 className="size-5" />
+            </ItemMedia>
+            <ItemContent className="min-w-0">
+              <ItemTitle>{conversation.file_name || "Audio Recording"}</ItemTitle>
+              <ItemDescription className="text-xs">Audio playback stream</ItemDescription>
+            </ItemContent>
+            <ItemActions className="w-full sm:w-auto">
+              {audioSrc ? (
+                <audio
+                  controls
+                  src={audioSrc}
+                  className="w-full sm:w-80 h-9 rounded-md"
+                />
+              ) : (
+                <Badge variant="outline">
+                  <Spinner data-icon="inline-start" />
+                  Loading audio stream...
+                </Badge>
+              )}
+            </ItemActions>
+          </Item>
         )}
 
         {/* Tabs */}
         {conversation.status === "completed" && (
-          <>
-            <div className="flex gap-1 border-b border-slate-200">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
+            <TabsList variant="line" className="w-full justify-start overflow-x-auto">
               {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={clsx(
-                    "flex items-center gap-2 px-4 py-3 text-sm font-semibold transition-all border-b-2 -mb-px",
-                    activeTab === tab.id
-                      ? "text-indigo-600 border-indigo-600"
-                      : "text-slate-500 border-transparent hover:text-slate-900"
-                  )}
-                >
-                  <tab.icon className="w-4 h-4" />
+                <TabsTrigger key={tab.id} value={tab.id} className="flex-none">
+                  <tab.icon />
                   {tab.label}
-                </button>
+                </TabsTrigger>
               ))}
-            </div>
+            </TabsList>
 
             {/* Insights tab */}
-            {activeTab === "insights" && insights?.summary && (
-              <div className="space-y-4">
-                <div className="glass-card p-6">
-                  <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
-                    <Lightbulb className="w-4 h-4 text-indigo-600" />
-                    Executive Summary
-                  </h3>
-                  <p className="text-sm text-slate-700 leading-relaxed">{insights.summary.executive_summary}</p>
-                </div>
+            <TabsContent value="insights">
+              {insights?.summary && (
+                <div className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Lightbulb className="size-4" />
+                        Executive Summary
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm leading-relaxed">{insights.summary.executive_summary}</p>
+                    </CardContent>
+                  </Card>
 
-                {insights.summary.key_topics?.length > 0 && (
-                  <div className="glass-card p-6">
-                    <h3 className="text-sm font-bold text-slate-900 mb-3">Key Topics</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {insights.summary.key_topics.map((topic: string) => (
-                        <span key={topic} className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                          {topic}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                  {insights.summary.key_topics?.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Key Topics</CardTitle>
+                      </CardHeader>
+                      <CardContent className="flex-row flex-wrap gap-2">
+                        {insights.summary.key_topics.map((topic: string) => (
+                          <Badge key={topic} variant="secondary">
+                            {topic}
+                          </Badge>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  )}
 
-                {insights.pain_points?.length > 0 && (
-                  <div className="glass-card p-6">
-                    <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      Pain Points Detected
-                    </h3>
-                    <div className="space-y-3">
-                      {insights.pain_points.map((pp: any) => (
-                        <div key={pp.id} className="flex gap-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
-                          <div className={clsx("w-1.5 rounded-full flex-shrink-0",
-                            pp.severity === "high" ? "bg-rose-500" : pp.severity === "medium" ? "bg-amber-500" : "bg-slate-400"
-                          )} />
-                          <div>
-                            <p className="text-sm font-medium text-slate-900">{pp.description}</p>
-                            {pp.evidence && <p className="text-xs text-slate-500 mt-1 italic">"{pp.evidence}"</p>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                  {insights.pain_points?.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <AlertTriangle className="size-4 text-warning" />
+                          Pain Points Detected
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ItemGroup className="gap-3">
+                          {insights.pain_points.map((pp: any) => (
+                            <Item key={pp.id} variant="muted" size="sm" className="items-stretch">
+                              <ItemMedia className="self-stretch group-has-data-[slot=item-description]/item:translate-y-0 group-has-data-[slot=item-description]/item:self-stretch">
+                                <span className={clsx("w-1.5 self-stretch rounded-full",
+                                  pp.severity === "high" ? "bg-destructive" : pp.severity === "medium" ? "bg-amber-500" : "bg-muted-foreground/40"
+                                )} />
+                              </ItemMedia>
+                              <ItemContent>
+                                <ItemTitle className="line-clamp-none">{pp.description}</ItemTitle>
+                                {pp.evidence && <ItemDescription className="text-xs italic line-clamp-none">"{pp.evidence}"</ItemDescription>}
+                              </ItemContent>
+                            </Item>
+                          ))}
+                        </ItemGroup>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                {insights.recommendations?.length > 0 && (
-                  <div className="glass-card p-6">
-                    <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-                      <Lightbulb className="w-4 h-4 text-emerald-600" />
-                      AI Recommendations
-                    </h3>
-                    <div className="space-y-3">
-                      {insights.recommendations.map((rec: any) => (
-                        <div key={rec.id} className="flex gap-3 p-4 rounded-lg bg-slate-50 border border-slate-200">
-                          <span className={clsx("text-xs px-2.5 py-0.5 rounded-full font-semibold h-fit mt-0.5 border",
-                            rec.priority === "urgent" ? "badge-high" : rec.priority === "high" ? "badge-medium" : "badge-low"
-                          )}>
-                            {rec.priority}
-                          </span>
-                          <div>
-                            <p className="text-sm font-bold text-slate-900">{rec.action}</p>
-                            <p className="text-xs text-slate-600 mt-1">{rec.reasoning}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Transcript tab */}
-            {activeTab === "transcript" && transcript && (
-              <div className="glass-card p-6">
-                <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-indigo-600" />
-                  Transcript
-                  <span className="text-xs text-slate-500 font-normal ml-2">
-                    {transcript.segments?.length} segments
-                  </span>
-                </h3>
-                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-                  {transcript.segments?.map((seg: any) => (
-                    <div key={seg.id} className="flex gap-3 p-3 rounded-lg bg-slate-50/50 border border-slate-100">
-                      <div className="flex-shrink-0 mt-0.5">
-                        <div className="w-7 h-7 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-xs font-bold text-indigo-700">
-                          {seg.speaker_label?.charAt(0) || "S"}
-                        </div>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-bold text-slate-700">{seg.speaker_label}</span>
-                          <span className="text-xs text-slate-400">
-                            {Math.floor(seg.start_time / 60)}:{String(Math.floor(seg.start_time % 60)).padStart(2, "0")}
-                          </span>
-                        </div>
-                        <p className="text-sm text-slate-800 leading-relaxed">{seg.text}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Sales tab */}
-            {activeTab === "sales" && insights?.sales_insight && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="glass-card p-4">
-                    <p className="text-xs font-semibold text-slate-500 mb-1">Lead Score</p>
-                    <p className="text-3xl font-extrabold text-indigo-600">{insights.sales_insight.lead_score ?? "N/A"}</p>
-                  </div>
-                  <div className="glass-card p-4">
-                    <p className="text-xs font-semibold text-slate-500 mb-1">Purchase Intent</p>
-                    <p className={clsx("text-base font-bold capitalize",
-                      insights.sales_insight.purchase_intent === "high" ? "text-emerald-700" :
-                      insights.sales_insight.purchase_intent === "medium" ? "text-amber-700" : "text-slate-600"
-                    )}>{insights.sales_insight.purchase_intent ?? "N/A"}</p>
-                  </div>
-                  <div className="glass-card p-4">
-                    <p className="text-xs font-semibold text-slate-500 mb-1">Deal Health</p>
-                    <p className={clsx("text-base font-bold capitalize",
-                      insights.sales_insight.deal_health === "healthy" ? "text-emerald-700" :
-                      insights.sales_insight.deal_health === "at_risk" ? "text-amber-700" : "text-rose-700"
-                    )}>{insights.sales_insight.deal_health ?? "N/A"}</p>
-                  </div>
-                  <div className="glass-card p-4">
-                    <p className="text-xs font-semibold text-slate-500 mb-1">Closing Probability</p>
-                    <p className="text-base font-bold text-purple-700">
-                      {insights.sales_insight.closing_probability ? `${Math.round(insights.sales_insight.closing_probability * 100)}%` : "N/A"}
-                    </p>
-                  </div>
-                </div>
-
-                {insights.objections?.length > 0 && (
-                  <div className="glass-card p-6">
-                    <h3 className="text-sm font-bold text-slate-900 mb-4">Objections Detected</h3>
-                    <div className="space-y-3">
-                      {insights.objections.map((obj: any) => (
-                        <div key={obj.id} className="p-4 rounded-lg bg-slate-50 border border-slate-200">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className={clsx("text-xs px-2 py-0.5 rounded-full font-semibold capitalize border",
-                              obj.severity === "high" ? "badge-high" : obj.severity === "medium" ? "badge-medium" : "badge-low"
-                            )}>
-                              {obj.severity}
-                            </span>
-                            <span className="text-xs font-semibold text-slate-600 capitalize">{obj.category.replace("_", " ")}</span>
-                            {obj.was_resolved && <span className="text-xs text-emerald-700 ml-auto flex items-center gap-1 font-semibold"><CheckCircle className="w-3.5 h-3.5" />Resolved</span>}
-                          </div>
-                          <p className="text-sm font-medium text-slate-900">{obj.description}</p>
-                          {obj.exact_quote && <p className="text-xs text-slate-500 mt-1 italic">"{obj.exact_quote}"</p>}
-                          {obj.suggested_response && (
-                            <p className="text-xs text-indigo-700 font-medium mt-2">💡 {obj.suggested_response}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {insights.sales_insight.buying_signals?.length > 0 && (
-                  <div className="glass-card p-6">
-                    <h3 className="text-sm font-bold text-slate-900 mb-4">Buying Signals</h3>
-                    <div className="space-y-2">
-                      {insights.sales_insight.buying_signals.map((s: any, i: number) => (
-                        <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-emerald-50/60 border border-emerald-100">
-                          <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                          <div>
-                            <p className="text-sm font-medium text-slate-900">{s.signal}</p>
-                            {s.evidence && <p className="text-xs text-slate-500 mt-0.5">"{s.evidence}"</p>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Action items tab */}
-            {activeTab === "actions" && (
-              <div className="glass-card p-6">
-                <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-emerald-600" />
-                  Action Items ({insights?.action_items?.length ?? 0})
-                </h3>
-                <div className="space-y-3">
-                  {(insights?.action_items || []).map((item: any) => (
-                    <div key={item.id} className="flex items-start gap-3 p-4 rounded-lg bg-slate-50 border border-slate-200">
-                      <div className={clsx("w-2 h-2 rounded-full mt-2 flex-shrink-0",
-                        item.priority === "urgent" ? "bg-rose-500" :
-                        item.priority === "high" ? "bg-amber-500" : "bg-slate-400"
-                      )} />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-slate-900">{item.description}</p>
-                        <div className="flex items-center gap-3 mt-1">
-                          {item.owner && <span className="text-xs text-slate-500">Owner: {item.owner}</span>}
-                          {item.due_date && <span className="text-xs text-slate-500">Due: {item.due_date}</span>}
-                          <span className={clsx("text-xs px-2 py-0.5 rounded-full capitalize border",
-                            item.priority === "urgent" ? "badge-high" : "badge-medium"
-                          )}>{item.priority}</span>
-                        </div>
-                      </div>
-                      <span className={clsx("text-xs px-2.5 py-1 rounded-full font-semibold border",
-                        item.status === "completed" ? "badge-positive" : "badge-neutral"
-                      )}>
-                        {item.status}
-                      </span>
-                    </div>
-                  ))}
-                  {(!insights?.action_items || insights.action_items.length === 0) && (
-                    <p className="text-slate-400 text-sm text-center py-6">No action items detected</p>
+                  {insights.recommendations?.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Lightbulb className="size-4 text-success" />
+                          AI Recommendations
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ItemGroup className="gap-3">
+                          {insights.recommendations.map((rec: any) => (
+                            <Item key={rec.id} variant="muted">
+                              <ItemMedia>
+                                <LevelBadge level={rec.priority} />
+                              </ItemMedia>
+                              <ItemContent>
+                                <ItemTitle className="line-clamp-none">{rec.action}</ItemTitle>
+                                <ItemDescription className="text-xs line-clamp-none">{rec.reasoning}</ItemDescription>
+                              </ItemContent>
+                            </Item>
+                          ))}
+                        </ItemGroup>
+                      </CardContent>
+                    </Card>
                   )}
                 </div>
-              </div>
-            )}
+              )}
+            </TabsContent>
+
+            {/* Transcript tab */}
+            <TabsContent value="transcript">
+              {transcript && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <MessageSquare className="size-4" />
+                      Transcript
+                      <span className="text-xs text-muted-foreground font-normal ml-2">
+                        {transcript.segments?.length} segments
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="pr-3 *:data-[slot=scroll-area-viewport]:max-h-[600px]">
+                      <ItemGroup className="gap-4">
+                        {transcript.segments?.map((seg: any) => (
+                          <Item key={seg.id} variant="muted" size="sm">
+                            <ItemMedia>
+                              <Avatar size="sm" className="size-7">
+                                <AvatarFallback className="text-xs font-semibold">
+                                  {seg.speaker_label?.charAt(0) || "S"}
+                                </AvatarFallback>
+                              </Avatar>
+                            </ItemMedia>
+                            <ItemContent>
+                              <ItemTitle className="text-xs">
+                                {seg.speaker_label}
+                                <span className="font-normal text-muted-foreground tabular-nums">
+                                  {Math.floor(seg.start_time / 60)}:{String(Math.floor(seg.start_time % 60)).padStart(2, "0")}
+                                </span>
+                              </ItemTitle>
+                              <p className="text-sm leading-relaxed">{seg.text}</p>
+                            </ItemContent>
+                          </Item>
+                        ))}
+                      </ItemGroup>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            {/* Sales tab */}
+            <TabsContent value="sales">
+              {insights?.sales_insight && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardDescription>Lead Score</CardDescription>
+                        <CardTitle className="text-3xl font-semibold tabular-nums">{insights.sales_insight.lead_score ?? "N/A"}</CardTitle>
+                      </CardHeader>
+                    </Card>
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardDescription>Purchase Intent</CardDescription>
+                        <CardTitle className={clsx("capitalize",
+                          insights.sales_insight.purchase_intent === "high" ? "text-success" :
+                          insights.sales_insight.purchase_intent === "medium" ? "text-warning" : "text-muted-foreground"
+                        )}>{insights.sales_insight.purchase_intent ?? "N/A"}</CardTitle>
+                      </CardHeader>
+                    </Card>
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardDescription>Deal Health</CardDescription>
+                        <CardTitle className={clsx("capitalize",
+                          insights.sales_insight.deal_health === "healthy" ? "text-success" :
+                          insights.sales_insight.deal_health === "at_risk" ? "text-warning" : "text-destructive"
+                        )}>{insights.sales_insight.deal_health ?? "N/A"}</CardTitle>
+                      </CardHeader>
+                    </Card>
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardDescription>Closing Probability</CardDescription>
+                        <CardTitle>
+                          {insights.sales_insight.closing_probability ? `${Math.round(insights.sales_insight.closing_probability * 100)}%` : "N/A"}
+                        </CardTitle>
+                      </CardHeader>
+                    </Card>
+                  </div>
+
+                  {insights.objections?.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Objections Detected</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ItemGroup className="gap-3">
+                          {insights.objections.map((obj: any) => (
+                            <Item key={obj.id} variant="muted">
+                              <ItemContent>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <LevelBadge level={obj.severity} />
+                                  <span className="text-xs font-semibold text-muted-foreground capitalize">{obj.category.replace("_", " ")}</span>
+                                  {obj.was_resolved && (
+                                    <Badge variant="outline" className="ml-auto">
+                                      <CheckCircle data-icon="inline-start" className="text-success" />
+                                      Resolved
+                                    </Badge>
+                                  )}
+                                </div>
+                                <ItemTitle className="line-clamp-none">{obj.description}</ItemTitle>
+                                {obj.exact_quote && <ItemDescription className="text-xs italic line-clamp-none">"{obj.exact_quote}"</ItemDescription>}
+                                {obj.suggested_response && (
+                                  <p className="text-xs font-medium mt-1 flex items-start gap-1.5">
+                                    <Lightbulb className="size-3.5 shrink-0 mt-px" />
+                                    {obj.suggested_response}
+                                  </p>
+                                )}
+                              </ItemContent>
+                            </Item>
+                          ))}
+                        </ItemGroup>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {insights.sales_insight.buying_signals?.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Buying Signals</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ItemGroup className="gap-2">
+                          {insights.sales_insight.buying_signals.map((s: any, i: number) => (
+                            <Item key={i} variant="outline" size="sm">
+                              <ItemMedia variant="icon">
+                                <CheckCircle className="text-success" />
+                              </ItemMedia>
+                              <ItemContent>
+                                <ItemTitle className="line-clamp-none">{s.signal}</ItemTitle>
+                                {s.evidence && <ItemDescription className="text-xs line-clamp-none">"{s.evidence}"</ItemDescription>}
+                              </ItemContent>
+                            </Item>
+                          ))}
+                        </ItemGroup>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Action items tab */}
+            <TabsContent value="actions">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CheckCircle className="size-4 text-success" />
+                    Action Items ({insights?.action_items?.length ?? 0})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ItemGroup className="gap-3">
+                    {(insights?.action_items || []).map((item: any) => (
+                      <Item key={item.id} variant="muted">
+                        <ItemMedia>
+                          <span className={clsx("size-2 rounded-full",
+                            item.priority === "urgent" ? "bg-destructive" :
+                            item.priority === "high" ? "bg-amber-500" : "bg-muted-foreground/40"
+                          )} />
+                        </ItemMedia>
+                        <ItemContent>
+                          <ItemTitle className="line-clamp-none">{item.description}</ItemTitle>
+                          <div className="flex items-center gap-3">
+                            {item.owner && <span className="text-xs text-muted-foreground">Owner: {item.owner}</span>}
+                            {item.due_date && <span className="text-xs text-muted-foreground">Due: {item.due_date}</span>}
+                            <LevelBadge level={item.priority} />
+                          </div>
+                        </ItemContent>
+                        <ItemActions>
+                          <Badge variant={item.status === "completed" ? "secondary" : "outline"}>
+                            {item.status}
+                          </Badge>
+                        </ItemActions>
+                      </Item>
+                    ))}
+                    {(!insights?.action_items || insights.action_items.length === 0) && (
+                      <p className="text-muted-foreground text-sm text-center py-6">No action items detected</p>
+                    )}
+                  </ItemGroup>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
             {/* Agent Score tab */}
-            {activeTab === "agent" && insights?.agent_score && (
-              <div className="space-y-4">
-                <div className="glass-card p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                      <Star className="w-4 h-4 text-amber-500" />
-                      AI Performance Assessment
-                    </h3>
-                    <div className="text-center">
-                      <div className="text-4xl font-extrabold text-amber-600">{insights.agent_score.overall_score}</div>
-                      <div className="text-xs text-slate-400">/100</div>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <ScoreBar score={insights.agent_score.greeting_score} label="Greeting" />
-                    <ScoreBar score={insights.agent_score.professionalism_score} label="Professionalism" />
-                    <ScoreBar score={insights.agent_score.empathy_score} label="Empathy" />
-                    <ScoreBar score={insights.agent_score.listening_score} label="Active Listening" />
-                    <ScoreBar score={insights.agent_score.question_quality_score} label="Question Quality" />
-                    <ScoreBar score={insights.agent_score.product_knowledge_score} label="Product Knowledge" />
-                    <ScoreBar score={insights.agent_score.objection_handling_score} label="Objection Handling" />
-                    <ScoreBar score={insights.agent_score.closing_score} label="Closing" />
-                  </div>
-                </div>
+            <TabsContent value="agent">
+              {insights?.agent_score && (
+                <div className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Star className="size-4 text-warning" />
+                        AI Performance Assessment
+                      </CardTitle>
+                      <CardAction className="text-center">
+                        <div className="text-4xl font-semibold tabular-nums">{insights.agent_score.overall_score}</div>
+                        <div className="text-xs text-muted-foreground">/100</div>
+                      </CardAction>
+                    </CardHeader>
+                    <CardContent>
+                      <ScoreBar score={insights.agent_score.greeting_score} label="Greeting" />
+                      <ScoreBar score={insights.agent_score.professionalism_score} label="Professionalism" />
+                      <ScoreBar score={insights.agent_score.empathy_score} label="Empathy" />
+                      <ScoreBar score={insights.agent_score.listening_score} label="Active Listening" />
+                      <ScoreBar score={insights.agent_score.question_quality_score} label="Question Quality" />
+                      <ScoreBar score={insights.agent_score.product_knowledge_score} label="Product Knowledge" />
+                      <ScoreBar score={insights.agent_score.objection_handling_score} label="Objection Handling" />
+                      <ScoreBar score={insights.agent_score.closing_score} label="Closing" />
+                    </CardContent>
+                  </Card>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div className="glass-card p-5">
-                    <h4 className="text-xs font-bold text-emerald-700 mb-3 uppercase tracking-wide">Strengths</h4>
-                    <ul className="space-y-2">
-                      {insights.agent_score.strengths?.map((s: string, i: number) => (
-                        <li key={i} className="flex items-start gap-2 text-xs text-slate-700 font-medium">
-                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                          {s}
-                        </li>
-                      ))}
-                    </ul>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardTitle className="text-xs font-semibold text-success uppercase tracking-wide">Strengths</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ul className="space-y-2">
+                          {insights.agent_score.strengths?.map((s: string, i: number) => (
+                            <li key={i} className="flex items-start gap-2 text-xs font-medium">
+                              <CheckCircle className="size-3.5 text-success shrink-0 mt-0.5" />
+                              {s}
+                            </li>
+                          ))}
+                        </ul>
+                      </CardContent>
+                    </Card>
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardTitle className="text-xs font-semibold text-warning uppercase tracking-wide">Areas to Improve</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ul className="space-y-2">
+                          {insights.agent_score.weaknesses?.map((w: string, i: number) => (
+                            <li key={i} className="flex items-start gap-2 text-xs font-medium">
+                              <AlertTriangle className="size-3.5 text-warning shrink-0 mt-0.5" />
+                              {w}
+                            </li>
+                          ))}
+                        </ul>
+                      </CardContent>
+                    </Card>
                   </div>
-                  <div className="glass-card p-5">
-                    <h4 className="text-xs font-bold text-amber-700 mb-3 uppercase tracking-wide">Areas to Improve</h4>
-                    <ul className="space-y-2">
-                      {insights.agent_score.weaknesses?.map((w: string, i: number) => (
-                        <li key={i} className="flex items-start gap-2 text-xs text-slate-700 font-medium">
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-                          {w}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
 
-                {insights.agent_score.disclaimer && (
-                  <div className="p-4 rounded-lg bg-slate-50 border border-slate-200">
-                    <p className="text-xs text-slate-500 flex items-center gap-2">
-                      <Shield className="w-3.5 h-3.5 text-slate-400" />
-                      {insights.agent_score.disclaimer}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+                  {insights.agent_score.disclaimer && (
+                    <Alert>
+                      <Shield />
+                      <AlertDescription className="text-xs">{insights.agent_score.disclaimer}</AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              )}
+            </TabsContent>
 
             {/* Meeting Minutes tab */}
-            {activeTab === "minutes" && insights?.meeting_minutes && (
-              <div className="glass-card p-6">
-                {insights.meeting_minutes.formatted_markdown ? (
-                  <div className="prose prose-slate prose-sm max-w-none">
-                    <pre className="whitespace-pre-wrap text-sm text-slate-800 font-sans leading-relaxed">
-                      {insights.meeting_minutes.formatted_markdown}
-                    </pre>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Objective</h4>
-                      <p className="text-sm text-slate-800">{insights.meeting_minutes.objective}</p>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Next Steps</h4>
-                      <ul className="space-y-1">
-                        {insights.meeting_minutes.next_steps?.map((s: string, i: number) => (
-                          <li key={i} className="text-sm text-slate-800 flex items-start gap-2">
-                            <span className="text-indigo-600 font-bold mt-0.5">→</span> {s}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
+            <TabsContent value="minutes">
+              {insights?.meeting_minutes && (
+                <Card>
+                  <CardContent>
+                    {insights.meeting_minutes.formatted_markdown ? (
+                      <pre className="whitespace-pre-wrap text-sm font-sans leading-relaxed">
+                        {insights.meeting_minutes.formatted_markdown}
+                      </pre>
+                    ) : (
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Objective</h4>
+                          <p className="text-sm">{insights.meeting_minutes.objective}</p>
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Next Steps</h4>
+                          <ul className="space-y-1">
+                            {insights.meeting_minutes.next_steps?.map((s: string, i: number) => (
+                              <li key={i} className="text-sm flex items-start gap-2">
+                                <span className="font-bold mt-0.5">→</span> {s}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+            {/* CRM Updates tab */}
+            <TabsContent value="crm">
+              <CrmProposalsPanel conversationId={id} />
+            </TabsContent>
+
+            {/* Ask AI tab */}
+            <TabsContent value="chat">
+              <ConversationChat conversationId={id} />
+            </TabsContent>
+          </Tabs>
         )}
       </div>
     </AppShell>
