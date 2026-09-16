@@ -18,7 +18,7 @@ async def test_mock_llm_provider_completion():
     messages = [LLMMessage(role="user", content="Hello")]
     res = await provider.complete(messages)
     assert res.content is not None
-    assert res.model == "mock-llm"
+    assert res.model == provider.model_name
 
 
 @pytest.mark.asyncio

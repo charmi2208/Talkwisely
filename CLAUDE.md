@@ -59,7 +59,7 @@ cp .env.local.example .env.local             # then add the Groq key and switch 
   - Free Groq keys don't have access to `llama-3.3-70b-versatile`. Check available models with the models list endpoint before changing `LLM_MODEL`. `LLM_REASONING_EFFORT` is only sent when set, because non-reasoning models reject it.
   - `STT_PROVIDER=whisper_api`, which reuses the LLM key and base URL
   - `EMBEDDING_PROVIDER=local`: ONNX all-MiniLM-L6-v2 from chromadb, downloaded (~80 MB) to `~/.cache/chroma` on first use
-- Test vectors: `tests/run_tests.py` points `CHROMA_PERSIST_DIR` at a temp dir so it never writes to the real `vector_store/`.
+- Test vectors: `tests/conftest.py` (pytest) and `tests/run_tests.py` point `CHROMA_PERSIST_DIR` at a temp dir, so tests never write to the real `vector_store/`. The integration tests use `httpx.ASGITransport`, because httpx 0.28 removed `AsyncClient(app=...)`.
 - No Alembic migrations exist; schema is created with `Base.metadata.create_all` in `start.py` / `seed.py`. Model changes to existing tables need a manual DB reset.
 - Demo logins (seeded): `admin@demo.talkwiseai.com` / `admin123`, `manager@…` / `manager123`, `agent@…` / `agent123`.
 
