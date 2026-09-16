@@ -1,0 +1,66 @@
+"""
+Export all ORM models from a single location.
+
+Usage:
+    from app.db.models import User, Conversation, Summary, ...
+"""
+
+from app.db.models.models import (
+    ActionItem,
+    AgentScore,
+    AuditLog,
+    Conversation,
+    CRMRecord,
+    Entity,
+    Integration,
+    IntentResult,
+    KnowledgeChunk,
+    KnowledgeDocument,
+    MeetingMinutes,
+    Notification,
+    Objection,
+    Organization,
+    PainPoint,
+    Participant,
+    ProcessingJob,
+    Recommendation,
+    Report,
+    Role,
+    SalesInsight,
+    SentimentResult,
+    Speaker,
+    Summary,
+    TranscriptSegment,
+    User,
+    UserRole,
+)
+
+__all__ = [
+    "ActionItem",
+    "AgentScore",
+    "AuditLog",
+    "Conversation",
+    "CRMRecord",
+    "Entity",
+    "Integration",
+    "IntentResult",
+    "KnowledgeChunk",
+    "KnowledgeDocument",
+    "MeetingMinutes",
+    "Notification",
+    "Objection",
+    "Organization",
+    "PainPoint",
+    "Participant",
+    "ProcessingJob",
+    "Recommendation",
+    "Report",
+    "Role",
+    "SalesInsight",
+    "SentimentResult",
+    "Speaker",
+    "Summary",
+    "TranscriptSegment",
+    "User",
+    "UserRole",
+]
