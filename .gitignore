@@ -13,3 +13,7 @@ backend/.env.local
 backend/vector_store/
 backend/storage/uploads/
 backend/storage/kb/
+
+# Local database (created and seeded by start.py) and its backups
+backend/storage/*.db
+backend/storage/*.backup-*

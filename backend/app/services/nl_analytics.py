@@ -297,14 +297,31 @@ def _scope(user, call: ToolCall) -> list:
     return conds
 
 
+def _noun(call: ToolCall, noun: str = "conversations") -> str:
+    if call.types == MEETING_TYPES:
+        return "meetings"
+    if call.types:
+        return f"{call.types[0].replace('_', ' ')} {noun}"
+    return noun
+
+
+def _when(call: ToolCall) -> str:
+    """'this month', 'today', 'overall', or 'in the last 30 days'."""
+    if call.period.key == "all_time":
+        return "overall"
+    if call.period.key.startswith(("this_", "last_week", "last_month")) or call.period.key in ("today", "yesterday"):
+        return call.period.label
+    return f"in {call.period.label}"
+
+
 def _what(call: ToolCall, noun: str = "conversations") -> str:
     """'sales conversations in the last 30 days'"""
-    if call.types == MEETING_TYPES:
-        noun = "meetings"
-    elif call.types:
-        noun = f"{call.types[0].replace('_', ' ')} {noun}"
-    return f"{noun} {('in ' + call.period.label) if call.period.key != 'all_time' else 'overall'}".replace(
-        "in today", "today").replace("in yesterday", "yesterday")
+    return f"{_noun(call, noun)} {_when(call)}"
+
+
+def _within(call: ToolCall) -> str:
+    """'in the last 30 days', or 'in sales conversations this week' when filtered by type."""
+    return f"in {_noun(call)} {_when(call)}" if call.types else _when(call)
 
 
 def _pct(part: int, whole: int) -> str:
@@ -362,7 +379,7 @@ async def _top_objections(db, user, call) -> AnalyticsResult:
     if not rows:
         return AnalyticsResult("top_objections", "Objections", f"No objections were recorded in {_what(call)}.", call.period.label)
     top, count, _ = rows[0]
-    answer = f"The most frequent objection in {_what(call)} was {top.replace('_', ' ')} ({count} times)."
+    answer = f"The most frequent objection {_within(call)} was {top.replace('_', ' ')} ({count} times)."
     if len(rows) > 1:
         answer += " Next: " + ", ".join(f"{c.replace('_', ' ')} ({n})" for c, n, _ in rows[1:]) + "."
     return AnalyticsResult(
@@ -384,9 +401,9 @@ async def _agent_leaderboard(db, user, call) -> AnalyticsResult:
         return AnalyticsResult("agent_leaderboard", "Agent scores", f"No scored {_what(call)}.", call.period.label)
     name, avg, n = rows[0]
     if is_privileged(user):
-        answer = f"{name} had the highest average QA score in {_what(call)}: {float(avg):.1f}/100 over {n} call(s)."
+        answer = f"{name} had the highest average QA score {_within(call)}: {float(avg):.1f}/100 over {n} call(s)."
     else:
-        answer = f"Your average QA score in {_what(call)} is {float(avg):.1f}/100 over {n} call(s). Team rankings are visible to managers."
+        answer = f"Your average QA score {_within(call)} is {float(avg):.1f}/100 over {n} call(s). Team rankings are visible to managers."
     answer += " Scores are AI-generated assessments."
     return AnalyticsResult(
         "agent_leaderboard", "Average QA score by person", answer, call.period.label,
@@ -428,7 +445,7 @@ async def _high_intent_leads(db, user, call) -> AnalyticsResult:
         .where(*_scope(user, call), SalesInsight.purchase_intent == "high")
         .order_by(SalesInsight.lead_score.desc().nullslast())
     )).all()
-    answer = f"There were {len(rows)} high-intent leads in {_what(call)}"
+    answer = f"There were {len(rows)} high-intent leads {_within(call)}"
     answer += (": " + ", ".join(f"{t} ({s})" for t, s, _, _ in rows[:5]) + ("." if len(rows) <= 5 else ", ...")) if rows else "."
     return AnalyticsResult(
         "high_intent_leads", "High-intent leads", answer, call.period.label,
@@ -499,7 +516,7 @@ async def _top_topics(db, user, call) -> AnalyticsResult:
                 counter[item.strip()] += 1
     top = counter.most_common(call.limit)
     answer = (
-        f"The most discussed topics in {_what(call)} were " + ", ".join(f"{t} ({n})" for t, n in top) + "."
+        f"The most discussed topics {_within(call)} were " + ", ".join(f"{t} ({n})" for t, n in top) + "."
         if top else f"No topics were recorded in {_what(call)}."
     )
     return AnalyticsResult("top_topics", "Most discussed topics", answer, call.period.label,

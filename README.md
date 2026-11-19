@@ -132,7 +132,7 @@ Talkwisely/
 # Backend (from backend/)
 ./venv/bin/pytest                            # all tests (mock providers, throwaway database)
 ./venv/bin/python -m app.db.migrate          # apply migrations
-./venv/bin/python scripts/seed.py            # reload demo data
+./venv/bin/python scripts/seed.py            # load demo data (--refresh-demo replaces old demo conversations)
 ./venv/bin/python scripts/reindex.py --all   # rebuild the search index
 ./venv/bin/python -m evaluation.run_eval     # AI evaluation (needs a real model)
 ./venv/bin/python scripts/generate_docs.py   # refresh docs/API.md and docs/DATABASE.md
@@ -169,7 +169,6 @@ npm run test:e2e                             # browser tests (needs Chrome and b
 ## Known limitations
 
 - **Speaker labels** come from pauses in the audio and the AI reading the conversation, not from voice recognition. Rename speakers when they're wrong.
-- **Demo data:** the seeded conversations share placeholder transcripts, so Copilot answers about them aren't meaningful. Upload real recordings for realistic results.
 - **AI accuracy:** results can contain mistakes (purchase intent was the weakest task in evaluation). Review CRM changes and emails before using them.
 - **Integrations** are mock adapters until real provider APIs are connected.
 - **Scale:** for several API replicas, use Celery, a Chroma server and `CACHE_BACKEND=redis` (shared cache and rate limits); the Celery compose override sets all three.

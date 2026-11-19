@@ -36,7 +36,7 @@ cp .env.local.example .env.local                 # then add the Groq key and swi
 ./venv/bin/python start.py
 
 ./venv/bin/python -m app.db.migrate          # migrations only
-./venv/bin/python scripts/seed.py            # re-run seed only (also migrates)
+./venv/bin/python scripts/seed.py            # re-run seed only (also migrates); --refresh-demo replaces seeded demo conversations
 ./venv/bin/python scripts/reindex.py         # index conversations/KB docs missing from the vector store (--all rebuilds)
 ./venv/bin/python scripts/generate_docs.py   # regenerate docs/API.md and docs/DATABASE.md after route/model changes
 ./venv/bin/pytest                            # full suite: unit, integration, API-level e2e (~1 min)
@@ -58,6 +58,7 @@ cp .env.local.example .env.local                 # then add the Groq key and swi
 - **Migrations:** Alembic (`alembic/`, `alembic.ini`); `app/db/migrate.py::upgrade_database()` stamps pre-Alembic databases (tables but no `alembic_version`) at `0001` and upgrades to head. After model changes: `./venv/bin/alembic revision --autogenerate -m "..."`, name constraints explicitly (SQLite uses batch mode), guard data backfills with `op.get_context().as_sql`, then `alembic check` should be clean.
 - **Browser e2e:** `cd frontend && npm run test:e2e` (Playwright 1.65.0 pinned, system Chrome via `channel: "chrome"`). `playwright.config.ts` starts `backend/scripts/e2e_server.py` (temp DB, demo data, mock AI) on :8020 and a production build (`npm run build && next start`) on :3020; dev-server compiles were too slow and flaky. Stop `next dev` first (shared `.next`). Specs live in `frontend/e2e/`; `helpers.ts::login` retries the quick-fill until hydration because the login page is server-rendered (its demo buttons' text is lowercase).
 - **Docker:** `docker compose up --build` (Postgres + API + web, in-process jobs); add `-f docker-compose.celery.yml` for Redis, Celery worker and a Chroma server. The backend entrypoint migrates, seeds and reindexes unless `RUN_MIGRATIONS=false` / `SEED_DEMO_DATA=false`.
+- **Demo data:** `scripts/demo_data.py` holds 12 consistent conversations (transcript turns plus insights that reference turn indexes) and 2 KB documents; `scripts/seed.py` derives timestamps (2.6 words/s) and quotes from the turns. Seeded conversations have `file_name` `demo-<key>.mp3` (older placeholder seeds used `demo_recording.mp3`); `--refresh-demo` deletes only those. Seeding is idempotent by title.
 - Demo logins (seeded): `admin@demo.talkwiseai.com` / `admin123`, `manager@…` / `manager123`, `agent@…` / `agent123`, `agent2@…` / `agent123`.
 
 ### Frontend (`frontend/`)

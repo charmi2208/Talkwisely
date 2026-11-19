@@ -51,6 +51,13 @@ Open http://localhost:3000.
 | Agent | agent@demo.talkwiseai.com | agent123 |
 | Agent | agent2@demo.talkwiseai.com | agent123 |
 
+The demo organization has 12 fictional conversations (sales calls, a demo, a negotiation, support escalations, a complaint, a cancellation, a client review and an internal meeting) with full transcripts and insights, spread over the last 60 days, plus two knowledge-base documents. Databases seeded by an older version have placeholder conversations; replace them with:
+
+```bash
+./venv/bin/python scripts/seed.py --refresh-demo   # your own uploads are kept
+./venv/bin/python scripts/reindex.py
+```
+
 Use **Create one** on the login page to start a new, empty workspace instead.
 
 ## Option B: Docker Compose
