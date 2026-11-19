@@ -18,10 +18,11 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1 import (
     action_items, ai, analytics, auth, conversations, crm,
-    integrations, knowledge_base, meetings, notifications, reports, sales, users
+    integrations, knowledge_base, meetings, notifications, reports, sales, system, users
 )
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
+from app.core.rate_limit import rate_limit_middleware
 
 # Configure logging before anything else
 configure_logging()
@@ -45,8 +46,16 @@ async def lifespan(app: FastAPI):
     os.makedirs(f"{settings.storage_local_path}/uploads", exist_ok=True)
     os.makedirs(settings.chroma_persist_dir, exist_ok=True)
 
+    # Scheduled jobs (PBX auto-sync); not in tests, which drive them directly
+    import asyncio
+    from app.services.scheduler import pbx_auto_sync_loop
+
+    scheduler = None if settings.app_env == "test" else asyncio.create_task(pbx_auto_sync_loop())
+
     yield
 
+    if scheduler:
+        scheduler.cancel()
     logger.info("TalkWiseAI shutting down")
 
 
@@ -66,20 +75,7 @@ app = FastAPI(
 
 
 # ---------------------------------------------------------------------------
-# CORS Middleware
-# ---------------------------------------------------------------------------
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# ---------------------------------------------------------------------------
-# Request timing middleware
+# Middleware (the last one added runs first)
 # ---------------------------------------------------------------------------
 
 @app.middleware("http")
@@ -89,6 +85,19 @@ async def add_process_time(request: Request, call_next):
     duration_ms = round((time.perf_counter() - start) * 1000, 2)
     response.headers["X-Process-Time-Ms"] = str(duration_ms)
     return response
+
+
+app.middleware("http")(rate_limit_middleware)
+
+# CORS is outermost so every response, including 429s from the rate limiter,
+# carries CORS headers the browser needs to read it
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +139,7 @@ app.include_router(sales.router, prefix=API_PREFIX)
 app.include_router(meetings.router, prefix=API_PREFIX)
 app.include_router(users.router, prefix=API_PREFIX)
 app.include_router(notifications.router, prefix=API_PREFIX)
+app.include_router(system.router, prefix=API_PREFIX)
 
 
 # ---------------------------------------------------------------------------

@@ -329,8 +329,10 @@ class ActionItem(Base):
     __tablename__ = "action_items"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    conversation_id: Mapped[str] = mapped_column(String(36), ForeignKey("conversations.id"), nullable=False)
+    # Null for tasks people add by hand that don't come from a conversation
+    conversation_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("conversations.id"), nullable=True)
     organization_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"))  # null for AI-extracted tasks
     description: Mapped[str] = mapped_column(Text, nullable=False)
     owner: Mapped[str | None] = mapped_column(String(255))
     owner_speaker_label: Mapped[str | None] = mapped_column(String(50))
@@ -338,6 +340,7 @@ class ActionItem(Base):
     due_date_parsed: Mapped[datetime | None] = mapped_column(DateTime)
     priority: Mapped[str] = mapped_column(String(20), default="medium")  # low | medium | high | urgent
     status: Mapped[str] = mapped_column(String(20), default="pending")   # pending | in_progress | completed | overdue
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
     source_timestamp: Mapped[float | None] = mapped_column(Float)        # seconds into conversation
     related_topic: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
@@ -473,6 +476,7 @@ class KnowledgeDocument(Base):
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     file_type: Mapped[str] = mapped_column(String(50))  # pdf | docx | txt | md
     file_size_bytes: Mapped[int | None] = mapped_column(Integer)
+    category: Mapped[str] = mapped_column(String(100), default="general", server_default="general")
     status: Mapped[str] = mapped_column(String(50), default="processing")  # processing | indexed | failed
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

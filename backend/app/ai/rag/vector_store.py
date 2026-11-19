@@ -56,7 +56,11 @@ class VectorStore:
         """Attempt to initialize persistent ChromaDB client."""
         try:
             import chromadb
-            self._chroma_client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
+            if settings.chroma_host:
+                # Chroma server: required when the API and Celery workers run as separate processes
+                self._chroma_client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+            else:
+                self._chroma_client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
             # One collection per embedding model: vectors from different models aren't comparable
             suffix = re.sub(r"[^a-zA-Z0-9_-]", "-", self.embedding_provider.provider_name)
             self._collection = self._chroma_client.get_or_create_collection(
@@ -65,7 +69,7 @@ class VectorStore:
             )
             logger.info(
                 "ChromaDB vector store initialized",
-                path=settings.chroma_persist_dir,
+                path=f"{settings.chroma_host}:{settings.chroma_port}" if settings.chroma_host else settings.chroma_persist_dir,
                 collection=self._collection.name,
             )
         except Exception as e:

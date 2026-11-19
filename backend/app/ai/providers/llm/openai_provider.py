@@ -120,6 +120,7 @@ class OpenAILLMProvider(LLMProvider):
         messages: list[LLMMessage],
         temperature: float | None = None,
         max_tokens: int | None = None,
+        task: str | None = None,
     ) -> dict:
         """Call the API with JSON mode enforced. Returns the parsed dict."""
         response = await self.complete(
@@ -131,7 +132,7 @@ class OpenAILLMProvider(LLMProvider):
         try:
             parsed = json.loads(response.content)
         except json.JSONDecodeError:
-            logger.warning("LLM returned invalid JSON, retrying", content=response.content[:200])
+            logger.warning("LLM returned invalid JSON, retrying", task=task, content=response.content[:200])
             raise
         if not isinstance(parsed, dict):
             raise ValueError("LLM returned JSON that isn't an object")

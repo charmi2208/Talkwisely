@@ -65,44 +65,28 @@ def _update_conversation_status(db: Session, conversation_id: str, status: str, 
 
 @celery_app.task(bind=True, name="app.workers.conversation_tasks.process_conversation")
 def process_conversation(self: Task, conversation_id: str, job_id: str, file_path: str) -> dict:
+    """Celery entry point (used when TASK_QUEUE=celery)."""
+    return run_conversation_pipeline_direct(conversation_id, job_id, file_path)
+
+
+def enqueue_conversation_processing(background_tasks, conversation_id: str, job_id: str, file_path: str) -> str | None:
+    """Start processing on the configured queue. Returns the Celery task id, if any.
+
+    ``background_tasks`` is FastAPI's BackgroundTasks for request handlers; scheduled jobs
+    pass None and get a daemon thread instead.
     """
-    Main conversation processing pipeline.
+    if settings.task_queue == "celery":
+        result = process_conversation.delay(conversation_id, job_id, file_path)
+        return result.id
+    if background_tasks is not None:
+        background_tasks.add_task(run_conversation_pipeline_direct, conversation_id, job_id, file_path)
+    else:
+        import threading
 
-    Called after a file is uploaded. Runs the full pipeline:
-    STT → AI agents → DB storage → Embedding generation.
-    """
-    logger.info(f"Starting conversation processing: {conversation_id}")
-    db = _get_sync_db()
-
-    try:
-        # Update initial status
-        _update_job_status(db, job_id, "processing", 5, "Starting")
-        _update_conversation_status(db, conversation_id, "processing")
-
-        # ---- Run async pipeline in sync context ----
-        result = asyncio.run(
-            _async_process_conversation(conversation_id, job_id, file_path, db)
-        )
-
-        return result
-
-    except Exception as e:
-        logger.error(f"Conversation processing failed: {conversation_id} — {e}")
-        error_msg = str(e)
-        db.rollback()  # the session may be mid-transaction after a failed flush
-        _update_job_status(db, job_id, "failed", 0, "Failed")
-        _update_conversation_status(db, conversation_id, "failed", error=error_msg)
-
-        # Create failure notification
-        try:
-            _create_failure_notification(db, conversation_id, error_msg)
-        except Exception:
-            pass
-
-        raise
-
-    finally:
-        db.close()
+        threading.Thread(
+            target=run_conversation_pipeline_direct, args=(conversation_id, job_id, file_path), daemon=True
+        ).start()
+    return None
 
 
 async def _close_provider(provider) -> None:
@@ -117,6 +101,10 @@ async def _close_provider(provider) -> None:
 
 def _user_facing_error(exc: Exception) -> str:
     """Short, actionable reason for the UI; full details stay in the logs."""
+    from app.ai.pipeline.graph import PipelineError
+
+    if isinstance(exc, PipelineError):
+        return str(exc)[:300]
     name = type(exc).__name__
     text = str(exc)
     if name == "AuthenticationError" or "invalid_api_key" in text:
@@ -131,7 +119,11 @@ def _user_facing_error(exc: Exception) -> str:
 
 
 def run_conversation_pipeline_direct(conversation_id: str, job_id: str, file_path: str) -> dict:
-    """Run pipeline directly in background thread without Celery wrapper."""
+    """Run the whole job (STT, LangGraph pipeline, storage, indexing) synchronously.
+
+    Called from FastAPI BackgroundTasks or from the Celery task. Failures are recorded on
+    the conversation with a user-facing message; full tracebacks go to the logs.
+    """
     logger.info(f"Starting direct background conversation processing: {conversation_id}")
     db = _get_sync_db()
     try:
@@ -266,6 +258,17 @@ async def _async_process_conversation(
     finally:
         await _close_provider(llm)
 
+    if pipeline_state.get("status") == "failed":
+        from app.ai.pipeline.graph import NO_SPEECH_MESSAGE, PipelineError
+
+        errors = pipeline_state.get("errors", [])
+        logger.error(f"Pipeline failed for {conversation_id}: {errors}")
+        if NO_SPEECH_MESSAGE in errors:
+            raise PipelineError(NO_SPEECH_MESSAGE)
+        raise PipelineError(
+            "The AI analysis stopped before finishing. See the backend logs for details, then try again."
+        )
+
     # ---- Step 4: Store AI results ----
     update("processing", 90, "Storing AI results")
 
@@ -346,9 +349,15 @@ async def _async_process_conversation(
         )
         db.add(sales)
 
+    # The uploader's preferences decide whether AI tasks are saved and whether to alert
+    from app.core.preferences import HIGH_INTENT_LEAD_SCORE, effective_preferences
+
+    uploader = db.query(User).filter(User.id == conv.created_by).first() if conv else None
+    prefs = effective_preferences(uploader.preferences if uploader else None)
+
     # Store Action Items
     org_id = conv.organization_id if conv else ""
-    for ai_item in pipeline_state.get("action_items", []):
+    for ai_item in (pipeline_state.get("action_items", []) if prefs["auto_action_items"] else []):
         if not ai_item.get("description"):
             continue
         action = ActionItem(
@@ -507,8 +516,33 @@ async def _async_process_conversation(
     except Exception as e:
         logger.error(f"Indexing failed for {conversation_id}: {e}")
 
+    if conv:
+        from app.db.models import AuditLog
+
+        db.add(AuditLog(
+            organization_id=conv.organization_id,
+            user_id=conv.created_by,
+            action="ai_processing_completed",
+            resource_type="conversation",
+            resource_id=conversation_id,
+            details={"agent_errors": len(pipeline_state.get("errors", [])), "llm": llm.provider_name},
+        ))
+        db.commit()
+
     # Send completion notification
     await _create_completion_notification_async(db, conversation_id)
+
+    lead_score = db.query(SalesInsight.lead_score).filter(SalesInsight.conversation_id == conversation_id).scalar()
+    if prefs["lead_intent_alerts"] and lead_score is not None and lead_score >= HIGH_INTENT_LEAD_SCORE and conv:
+        db.add(Notification(
+            id=str(uuid_mod.uuid4()),
+            user_id=conv.created_by,
+            conversation_id=conversation_id,
+            type="high_intent",
+            title="High-intent lead detected",
+            message=f'"{conv.title}" scored {lead_score}/100. Review the recommended next steps.',
+        ))
+        db.commit()
 
     logger.info(f"Conversation processing complete: {conversation_id}")
     return {"status": "completed", "conversation_id": conversation_id}
@@ -536,13 +570,21 @@ async def _create_completion_notification_async(db, conversation_id: str) -> Non
 
 
 def _create_failure_notification(db, conversation_id: str, error: str) -> None:
-    """Create an in-app notification for processing failure."""
-    from app.db.models import Conversation, Notification
+    """Create an in-app notification (and audit entry) for a processing failure."""
+    from app.db.models import AuditLog, Conversation, Notification
     import uuid as uuid_mod
 
     conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
     if not conv:
         return
+    db.add(AuditLog(
+        organization_id=conv.organization_id,
+        user_id=conv.created_by,
+        action="ai_processing_failed",
+        resource_type="conversation",
+        resource_id=conversation_id,
+        details={"error": error[:300]},
+    ))
 
     notification = Notification(
         id=str(uuid_mod.uuid4()),
@@ -550,7 +592,7 @@ def _create_failure_notification(db, conversation_id: str, error: str) -> None:
         conversation_id=conversation_id,
         type="processing_failed",
         title="Processing Failed",
-        message=f'"{conv.title}" could not be processed. Please try uploading again.',
+        message=f'"{conv.title}" could not be processed: {error[:160]}',
     )
     db.add(notification)
     db.commit()

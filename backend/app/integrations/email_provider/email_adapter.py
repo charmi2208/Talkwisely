@@ -24,9 +24,16 @@ class EmailProvider(ABC):
         """Dispatch email only when approved."""
         ...
 
+    async def health_check(self) -> dict[str, Any]:
+        """Check the adapter can reach its service. Returns {"ok": bool, "message": str}."""
+        return {"ok": False, "message": "Health check not implemented for this adapter."}
+
 
 class MockEmailProvider(EmailProvider):
     """Mock Email Provider."""
+
+    async def health_check(self) -> dict[str, Any]:
+        return {"ok": True, "message": "Mock email adapter responded. No mail server was contacted."}
 
     async def send_email(
         self,

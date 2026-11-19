@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.agents.copilot_agent import CopilotAgent
 from app.ai.agents.email_agent import EmailGenerationAgent
 from app.ai.pipeline.graph import llm_session
+from app.core.access import conversation_scope, is_privileged
 from app.core.dependencies import get_current_user, get_db
 from app.core.logging import get_logger
 
@@ -54,6 +55,20 @@ class NLQueryRequest(BaseModel):
     query: str
 
 
+async def _check_conversation_access(db: AsyncSession, user, conversation_id: Optional[str]) -> None:
+    """404 unless ``user`` may see this conversation (no-op when no conversation is given)."""
+    if not conversation_id:
+        return
+    from sqlalchemy import select
+    from app.db.models import Conversation
+
+    found = (await db.execute(
+        select(Conversation.id).where(Conversation.id == conversation_id, *conversation_scope(user))
+    )).first()
+    if not found:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+
 @router.post("/copilot/chat", response_model=CopilotChatResponse)
 async def copilot_chat(
     payload: CopilotChatRequest,
@@ -66,6 +81,7 @@ async def copilot_chat(
     """
     if not payload.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
+    await _check_conversation_access(db, current_user, payload.conversation_id)
 
     async with llm_session() as llm:
         agent = CopilotAgent(llm)
@@ -76,6 +92,7 @@ async def copilot_chat(
             conversation_id=payload.conversation_id,
             chat_history=payload.chat_history,
             db_session=db,
+            owner_id=None if is_privileged(current_user) else current_user.id,
         )
 
     return CopilotChatResponse(
@@ -103,7 +120,7 @@ async def generate_email(
         .options(selectinload(Conversation.summary), selectinload(Conversation.sales_insight))
         .where(
             Conversation.id == payload.conversation_id,
-            Conversation.organization_id == current_user.organization_id,
+            *conversation_scope(current_user),
         )
     )
     conv = res.scalar_one_or_none()
@@ -165,7 +182,7 @@ async def natural_language_query(
             select(Conversation)
             .join(SalesInsight)
             .where(
-                Conversation.organization_id == current_user.organization_id,
+                *conversation_scope(current_user),
                 SalesInsight.purchase_intent == "high",
             )
             .limit(10)
@@ -183,7 +200,7 @@ async def natural_language_query(
         res = await db.execute(
             select(Objection.category, func.count(Objection.id).label("count"))
             .join(Conversation)
-            .where(Conversation.organization_id == current_user.organization_id)
+            .where(*conversation_scope(current_user))
             .group_by(Objection.category)
             .order_by(func.count(Objection.id).desc())
         )
@@ -200,6 +217,7 @@ async def natural_language_query(
             query=payload.query,
             organization_id=current_user.organization_id,
             db_session=db,
+            owner_id=None if is_privileged(current_user) else current_user.id,
         )
     return {
         "query_type": "rag_search",

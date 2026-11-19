@@ -7,7 +7,7 @@ import { conversationsApi } from "@/lib/api/conversations";
 import {
   ArrowLeft, RefreshCw, CheckCircle, TrendingUp,
   MessageSquare, BarChart3, Shield, Lightbulb, AlertTriangle,
-  Star, Trash2, Volume2, Database, Bot
+  Star, Trash2, Volume2, Database, Bot, Pencil, RotateCcw
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -30,6 +30,13 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { apiErrorMessage } from "@/lib/api/errors";
+import { formatDuration } from "@/lib/format";
 import { ConversationChat } from "@/components/conversation/ConversationChat";
 import { CrmProposalsPanel } from "@/components/conversation/CrmProposalsPanel";
 import { FollowUpEmailDialog } from "@/components/conversation/FollowUpEmailDialog";
@@ -113,8 +120,12 @@ export default function ConversationDetailPage() {
   const [insights, setInsights] = useState<any>(null);
   const [transcript, setTranscript] = useState<any>(null);
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("insights");
+  const [renaming, setRenaming] = useState<Record<string, string> | null>(null);
+  const [savingNames, setSavingNames] = useState(false);
+  const [reprocessing, setReprocessing] = useState(false);
 
   const loadConversation = useCallback(async () => {
     try {
@@ -143,9 +154,11 @@ export default function ConversationDetailPage() {
         .then((blob) => {
           url = URL.createObjectURL(blob);
           setAudioSrc(url);
+          setAudioError(false);
         })
         .catch(() => {
           setAudioSrc(null);
+          setAudioError(true);
         });
     }
     return () => {
@@ -193,6 +206,46 @@ export default function ConversationDetailPage() {
 
   const isProcessing = ["processing", "transcribing", "analyzing", "queued", "uploaded"].includes(conversation.status);
 
+  const handleReprocess = async () => {
+    setReprocessing(true);
+    try {
+      await conversationsApi.reprocess(id);
+      toast.success("Reprocessing started");
+      setActiveTab("insights");
+      await loadConversation();
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Couldn't start reprocessing"));
+    } finally {
+      setReprocessing(false);
+    }
+  };
+
+  const speakerLabels: string[] = Array.from(
+    new Set((transcript?.segments ?? []).map((seg: any) => seg.speaker_label as string).filter(Boolean))
+  );
+
+  const handleRename = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renaming) return;
+    const changes = Object.fromEntries(
+      Object.entries(renaming).filter(([from, to]) => to.trim() && to.trim() !== from)
+    );
+    if (Object.keys(changes).length === 0) {
+      setRenaming(null);
+      return;
+    }
+    setSavingNames(true);
+    try {
+      setTranscript(await conversationsApi.renameSpeakers(id, changes));
+      toast.success("Speakers renamed");
+      setRenaming(null);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Couldn't rename the speakers"));
+    } finally {
+      setSavingNames(false);
+    }
+  };
+
   const handleDelete = async () => {
     try {
       await conversationsApi.delete(id);
@@ -219,6 +272,29 @@ export default function ConversationDetailPage() {
           </Button>
           <div className="flex-1" />
           {conversation.status === "completed" && <FollowUpEmailDialog conversationId={id} />}
+          {(conversation.status === "completed" || conversation.status === "failed") && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" disabled={reprocessing}>
+                  {reprocessing ? <Spinner data-icon="inline-start" /> : <RotateCcw data-icon="inline-start" />}
+                  Reprocess
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Run the analysis again?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    The recording is transcribed and analyzed from scratch. The current transcript, insights and
+                    pending CRM proposals are replaced; approved CRM updates and manual tasks are kept.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleReprocess}>Reprocess</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive" size="sm">
@@ -230,7 +306,7 @@ export default function ConversationDetailPage() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Delete conversation?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Are you sure you want to delete this conversation?
+                  The recording, transcript and all AI insights for this conversation are permanently deleted.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -347,6 +423,8 @@ export default function ConversationDetailPage() {
                   src={audioSrc}
                   className="w-full sm:w-80 h-9 rounded-md"
                 />
+              ) : audioError ? (
+                <Badge variant="outline">Recording unavailable</Badge>
               ) : (
                 <Badge variant="outline">
                   <Spinner data-icon="inline-start" />
@@ -419,7 +497,7 @@ export default function ConversationDetailPage() {
                               </ItemMedia>
                               <ItemContent>
                                 <ItemTitle className="line-clamp-none">{pp.description}</ItemTitle>
-                                {pp.evidence && <ItemDescription className="text-xs italic line-clamp-none">"{pp.evidence}"</ItemDescription>}
+                                {pp.evidence && <ItemDescription className="text-xs italic line-clamp-none">&quot;{pp.evidence}&quot;</ItemDescription>}
                               </ItemContent>
                             </Item>
                           ))}
@@ -469,8 +547,39 @@ export default function ConversationDetailPage() {
                         {transcript.segments?.length} segments
                       </span>
                     </CardTitle>
+                    <CardDescription className="text-xs">
+                      Speaker labels are inferred from the audio and the conversation, and can be wrong. Rename them if needed.
+                    </CardDescription>
+                    {speakerLabels.length > 0 && (
+                      <CardAction>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRenaming(Object.fromEntries(speakerLabels.map((l) => [l, l])))}
+                        >
+                          <Pencil data-icon="inline-start" />
+                          Rename speakers
+                        </Button>
+                      </CardAction>
+                    )}
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="gap-4">
+                    {transcript.speaker_stats && transcript.speaker_stats.length > 0 && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {transcript.speaker_stats.map((s: any) => (
+                          <div key={s.label} className="rounded-lg border p-3 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2 text-sm">
+                              <span className="font-medium truncate">{s.label}</span>
+                              <span className="tabular-nums text-muted-foreground">{Math.round(s.talk_share * 100)}%</span>
+                            </div>
+                            <Progress value={s.talk_share * 100} className="h-1.5" />
+                            <p className="text-xs text-muted-foreground tabular-nums">
+                              {s.turns} turns · {s.words} words · {formatDuration(s.talk_time_seconds)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <ScrollArea className="pr-3 *:data-[slot=scroll-area-viewport]:max-h-[600px]">
                       <ItemGroup className="gap-4">
                         {transcript.segments?.map((seg: any) => (
@@ -560,7 +669,7 @@ export default function ConversationDetailPage() {
                                   )}
                                 </div>
                                 <ItemTitle className="line-clamp-none">{obj.description}</ItemTitle>
-                                {obj.exact_quote && <ItemDescription className="text-xs italic line-clamp-none">"{obj.exact_quote}"</ItemDescription>}
+                                {obj.exact_quote && <ItemDescription className="text-xs italic line-clamp-none">&quot;{obj.exact_quote}&quot;</ItemDescription>}
                                 {obj.suggested_response && (
                                   <p className="text-xs font-medium mt-1 flex items-start gap-1.5">
                                     <Lightbulb className="size-3.5 shrink-0 mt-px" />
@@ -589,7 +698,7 @@ export default function ConversationDetailPage() {
                               </ItemMedia>
                               <ItemContent>
                                 <ItemTitle className="line-clamp-none">{s.signal}</ItemTitle>
-                                {s.evidence && <ItemDescription className="text-xs line-clamp-none">"{s.evidence}"</ItemDescription>}
+                                {s.evidence && <ItemDescription className="text-xs line-clamp-none">&quot;{s.evidence}&quot;</ItemDescription>}
                               </ItemContent>
                             </Item>
                           ))}
@@ -756,6 +865,38 @@ export default function ConversationDetailPage() {
           </Tabs>
         )}
       </div>
+      <Dialog open={renaming !== null} onOpenChange={(open) => !open && setRenaming(null)}>
+        <DialogContent>
+          {renaming && (
+            <form onSubmit={handleRename} className="contents">
+              <DialogHeader>
+                <DialogTitle>Rename speakers</DialogTitle>
+                <DialogDescription>Changes apply to every line in this transcript.</DialogDescription>
+              </DialogHeader>
+              <FieldGroup className="gap-3">
+                {Object.entries(renaming).map(([label, value]) => (
+                  <Field key={label}>
+                    <FieldLabel htmlFor={`speaker-${label}`} className="text-xs text-muted-foreground">{label}</FieldLabel>
+                    <Input
+                      id={`speaker-${label}`}
+                      value={value}
+                      maxLength={50}
+                      onChange={(e) => setRenaming({ ...renaming, [label]: e.target.value })}
+                    />
+                  </Field>
+                ))}
+              </FieldGroup>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setRenaming(null)}>Cancel</Button>
+                <Button type="submit" disabled={savingNames}>
+                  {savingNames && <Spinner data-icon="inline-start" />}
+                  Save names
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

@@ -8,6 +8,10 @@ Each node:
 
 Nodes are pure functions (no side effects) — database writes happen
 after the graph completes.
+
+``steps_completed`` holds only the step a node just finished: the graph state
+declares an append reducer for it, so LangGraph concatenates the lists itself
+(including when the parallel analysis nodes finish in the same superstep).
 """
 
 import asyncio
@@ -15,6 +19,7 @@ from typing import Any
 
 from app.ai.pipeline.state import ConversationState
 from app.ai.providers.base import LLMMessage, LLMProvider
+from app.ai.schemas.agent_outputs import validate_output
 from app.core.logging import get_logger
 
 logger = get_logger("pipeline.nodes")
@@ -37,22 +42,40 @@ def _build_transcript_context(state: ConversationState, max_chars: int = 12000) 
     return result[:max_chars] if len(result) > max_chars else result
 
 
+# Shared by every agent prompt. The transcript shows times as [mm:ss], and without the
+# first rule models copy that format ("00:06") into numeric timestamp fields; the first
+# evaluation run (evaluation/results/baseline-2026-11-19.md) found 47% of responses needed that repair.
+OUTPUT_RULES = (
+    "Output rules: return only a JSON object. Give every timestamp as a number of seconds from the start "
+    "of the conversation (for example 75 for [01:15]), not as text. Use null for anything the transcript "
+    "does not state, and empty lists when there is nothing to report. Never guess names, dates, prices or commitments."
+)
+
+
 async def _safe_call_agent(
     llm: LLMProvider,
     system_prompt: str,
     user_content: str,
     agent_name: str,
 ) -> dict:
-    """Call LLM safely, returning {} on failure instead of crashing the pipeline."""
+    """Call the LLM and validate its JSON against the agent's schema.
+
+    Returns the cleaned output (schema defaults when the call fails), so one bad
+    response can't crash the pipeline or put malformed values in the database.
+    """
+    messages = [
+        LLMMessage(role="system", content=f"{system_prompt}\n\n{OUTPUT_RULES}"),
+        LLMMessage(role="user", content=user_content),
+    ]
     try:
-        messages = [
-            LLMMessage(role="system", content=system_prompt),
-            LLMMessage(role="user", content=user_content),
-        ]
-        return await llm.complete_json(messages)
+        raw = await llm.complete_json(messages, task=agent_name)
     except Exception as e:
         logger.error(f"Agent {agent_name} failed", error=str(e))
-        return {}
+        raw = {}
+    clean, issues = validate_output(agent_name, raw)
+    if issues and raw:
+        logger.warning(f"Agent {agent_name} output needed repair", issues=issues[:5], count=len(issues))
+    return clean
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +144,7 @@ async def node_clean_transcript(state: ConversationState, llm: LLMProvider) -> d
         "raw_segments": labeled_segments,
         "speaker_map": speaker_labels,
         "current_step": "transcript_cleaned",
-        "steps_completed": state.get("steps_completed", []) + ["clean_transcript"],
+        "steps_completed": ["clean_transcript"],
     }
 
 
@@ -147,12 +170,12 @@ async def node_classify_conversation(state: ConversationState, llm: LLMProvider)
     result = await _safe_call_agent(llm, system, user, "classification")
 
     return {
-        "conversation_type": result.get("conversation_type", "general_business"),
+        "conversation_type": result.get("conversation_type") or "general_business",
         "primary_purpose": result.get("primary_purpose", ""),
         "business_context": result.get("business_context", ""),
-        "classification_confidence": float(result.get("confidence", 0.7)),
+        "classification_confidence": result.get("confidence") if result.get("confidence") is not None else 0.0,
         "current_step": "classified",
-        "steps_completed": state.get("steps_completed", []) + ["classify"],
+        "steps_completed": ["classify"],
     }
 
 
@@ -188,7 +211,7 @@ async def node_summarize(state: ConversationState, llm: LLMProvider) -> dict:
         "open_questions": result.get("open_questions", []),
         "next_steps": result.get("next_steps", []),
         "current_step": "summarized",
-        "steps_completed": state.get("steps_completed", []) + ["summarize"],
+        "steps_completed": ["summarize"],
     }
 
 
@@ -215,7 +238,7 @@ async def node_extract_action_items(state: ConversationState, llm: LLMProvider) 
     return {
         "action_items": result.get("action_items", []),
         "current_step": "action_items_extracted",
-        "steps_completed": state.get("steps_completed", []) + ["action_items"],
+        "steps_completed": ["action_items"],
     }
 
 
@@ -245,9 +268,9 @@ async def node_analyze_sentiment(state: ConversationState, llm: LLMProvider) -> 
 
     return {
         "overall_sentiment": result.get("overall_sentiment", "neutral"),
-        "overall_sentiment_score": float(result.get("overall_score", 0.0)),
-        "customer_sentiment": result.get("customer_sentiment", "neutral"),
-        "agent_sentiment": result.get("agent_sentiment", "neutral"),
+        "overall_sentiment_score": result.get("overall_score") if result.get("overall_score") is not None else 0.0,
+        "customer_sentiment": result.get("customer_sentiment") or "neutral",
+        "agent_sentiment": result.get("agent_sentiment") or "neutral",
         "sentiment_trend": result.get("sentiment_trend", ""),
         "sentiment_timeline": result.get("timeline", []),
         "positive_moments": result.get("positive_moments", []),
@@ -255,7 +278,7 @@ async def node_analyze_sentiment(state: ConversationState, llm: LLMProvider) -> 
         "frustration_detected": bool(result.get("frustration_detected", False)),
         "satisfaction_detected": bool(result.get("satisfaction_detected", False)),
         "current_step": "sentiment_analyzed",
-        "steps_completed": state.get("steps_completed", []) + ["sentiment"],
+        "steps_completed": ["sentiment"],
     }
 
 
@@ -281,12 +304,12 @@ async def node_analyze_intent(state: ConversationState, llm: LLMProvider) -> dic
     result = await _safe_call_agent(llm, system, user, "intent")
 
     return {
-        "primary_intent": result.get("primary_intent", "information_request"),
+        "primary_intent": result.get("primary_intent") or "other",
         "secondary_intents": result.get("secondary_intents", []),
-        "intent_confidence": float(result.get("confidence", 0.7)),
+        "intent_confidence": result.get("confidence") if result.get("confidence") is not None else 0.0,
         "intent_evidence": result.get("evidence", []),
         "current_step": "intent_analyzed",
-        "steps_completed": state.get("steps_completed", []) + ["intent"],
+        "steps_completed": ["intent"],
     }
 
 
@@ -312,7 +335,7 @@ async def node_extract_pain_points(state: ConversationState, llm: LLMProvider) -
     return {
         "pain_points": result.get("pain_points", []),
         "current_step": "pain_points_extracted",
-        "steps_completed": state.get("steps_completed", []) + ["pain_points"],
+        "steps_completed": ["pain_points"],
     }
 
 
@@ -342,7 +365,7 @@ async def node_analyze_sales_intelligence(state: ConversationState, llm: LLMProv
             "cross_sell_opportunities": [],
             "pipeline_stage": None,
             "closing_probability": None,
-            "steps_completed": state.get("steps_completed", []) + ["sales_intelligence"],
+            "steps_completed": ["sales_intelligence"],
         }
 
     system = (
@@ -374,7 +397,7 @@ async def node_analyze_sales_intelligence(state: ConversationState, llm: LLMProv
         "pipeline_stage": result.get("stage"),
         "closing_probability": result.get("closing_probability"),
         "current_step": "sales_analyzed",
-        "steps_completed": state.get("steps_completed", []) + ["sales_intelligence"],
+        "steps_completed": ["sales_intelligence"],
     }
 
 
@@ -401,7 +424,7 @@ async def node_detect_objections(state: ConversationState, llm: LLMProvider) -> 
     return {
         "objections": result.get("objections", []),
         "current_step": "objections_detected",
-        "steps_completed": state.get("steps_completed", []) + ["objections"],
+        "steps_completed": ["objections"],
     }
 
 
@@ -417,6 +440,8 @@ async def node_extract_entities(state: ConversationState, llm: LLMProvider) -> d
     system = (
         "You are a named entity extraction AI for business conversations. "
         "Extract all notable entities. "
+        "Type a company as 'competitor' when it sells a similar product or service and the customer uses it, "
+        "is evaluating it, has received a quote from it, or is switching to it; otherwise use 'company'. "
         "Return JSON: {entities: [{type (competitor|product|company|person|technology|location|price|plan|feature), "
         "value, context, timestamp, sentiment (positive|negative|neutral|null), mention_count (int)}]}"
     )
@@ -427,7 +452,7 @@ async def node_extract_entities(state: ConversationState, llm: LLMProvider) -> d
     return {
         "entities": result.get("entities", []),
         "current_step": "entities_extracted",
-        "steps_completed": state.get("steps_completed", []) + ["entities"],
+        "steps_completed": ["entities"],
     }
 
 
@@ -462,7 +487,7 @@ async def node_generate_meeting_minutes(state: ConversationState, llm: LLMProvid
     return {
         "meeting_minutes": result,
         "current_step": "minutes_generated",
-        "steps_completed": state.get("steps_completed", []) + ["meeting_minutes"],
+        "steps_completed": ["meeting_minutes"],
     }
 
 
@@ -532,7 +557,7 @@ async def node_generate_recommendations(state: ConversationState, llm: LLMProvid
     return {
         "recommendations": result.get("recommendations", []),
         "current_step": "recommendations_generated",
-        "steps_completed": state.get("steps_completed", []) + ["recommendations"],
+        "steps_completed": ["recommendations"],
     }
 
 
@@ -563,7 +588,7 @@ async def node_propose_crm_updates(state: ConversationState, llm: LLMProvider) -
     return {
         "crm_proposed_changes": result,
         "current_step": "crm_proposals_generated",
-        "steps_completed": state.get("steps_completed", []) + ["crm_update"],
+        "steps_completed": ["crm_update"],
     }
 
 
@@ -594,6 +619,5 @@ async def node_score_agent_performance(state: ConversationState, llm: LLMProvide
     return {
         "agent_score": result,
         "current_step": "agent_scored",
-        "steps_completed": state.get("steps_completed", []) + ["agent_score"],
-        "status": "completed",
+        "steps_completed": ["agent_score"],
     }

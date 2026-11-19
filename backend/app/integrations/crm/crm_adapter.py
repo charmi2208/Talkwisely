@@ -27,6 +27,10 @@ class CRMProvider(ABC):
         """Log a call activity entry to a contact's activity feed."""
         ...
 
+    async def health_check(self) -> dict[str, Any]:
+        """Check the adapter can reach its service. Returns {"ok": bool, "message": str}."""
+        return {"ok": False, "message": "Health check not implemented for this adapter."}
+
     @property
     @abstractmethod
     def provider_name(self) -> str:
@@ -35,6 +39,9 @@ class CRMProvider(ABC):
 
 class MockCRMProvider(CRMProvider):
     """Mock CRM provider simulating Salesforce/HubSpot API sync."""
+
+    async def health_check(self) -> dict[str, Any]:
+        return {"ok": True, "message": "Mock CRM adapter responded. No external CRM was contacted."}
 
     def __init__(self, crm_name: str = "Salesforce"):
         self._name = crm_name

@@ -2,7 +2,7 @@
 
 **AI-Powered Meeting, Call & Sales Intelligence Platform**
 
-TalkWiseAI turns recorded sales calls, support calls and meetings into structured business intelligence: transcripts with speaker roles, summaries, sentiment, customer intent, lead scores, objections, action items, CRM update proposals and agent quality scores. Everything is searchable, and an AI Copilot answers questions with cited sources.
+TalkWiseAI turns recorded sales calls, support calls and meetings into structured business intelligence: transcripts with speaker roles, summaries, sentiment, customer intent, lead scores, objections, action items, meeting minutes, CRM update proposals and agent quality scores. Everything is searchable, an AI Copilot answers questions with cited sources, and managers get team analytics and reports.
 
 Built for the TalkWisely (Ahmedabad) Cloud PBX ecosystem as a 10-credit Semester Group Project (SGP).
 
@@ -13,109 +13,44 @@ Built for the TalkWisely (Ahmedabad) Cloud PBX ecosystem as a 10-credit Semester
 | Layer | Technology |
 |---|---|
 | Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, shadcn/ui, light and dark mode |
-| Backend | FastAPI, SQLAlchemy (async), Pydantic, JWT authentication with role-based access |
-| AI pipeline | Multi-agent conversation pipeline (LangGraph-style state graph, run with asyncio) |
+| Backend | FastAPI, SQLAlchemy 2 (async), Pydantic, Alembic migrations, JWT authentication with role-based access |
+| AI pipeline | LangGraph `StateGraph` with 14 agents; 8 analysis agents run in parallel; schema-validated JSON output |
 | LLM | Any OpenAI-compatible API. Default: Groq `openai/gpt-oss-120b` (free tier) |
-| Speech-to-text | Hosted Whisper (`whisper-large-v3-turbo` on Groq), with ffmpeg audio preprocessing |
-| Semantic search | ChromaDB with local ONNX embeddings (all-MiniLM-L6-v2, no API key needed) |
-| Database | SQLite for local development; PostgreSQL supported |
-| Integrations | Adapter interfaces for TalkWisely PBX, CRM, calendar and email (mock implementations for now) |
+| Speech-to-text | Hosted Whisper (`whisper-large-v3-turbo` on Groq) with ffmpeg preprocessing; local Whisper optional |
+| Semantic search | ChromaDB with local ONNX embeddings (all-MiniLM-L6-v2, no API key) |
+| Database | SQLite for local development and tests; PostgreSQL in Docker and production |
+| Background jobs | In-process by default; Celery and Redis optional |
+| Integrations | Adapter interfaces with mock implementations for TalkWisely PBX, CRM, calendar and email |
 
 ---
 
-## Project structure
+## Quick start
 
-```
-Talkwisely/
-├── backend/                 FastAPI app
-│   ├── app/
-│   │   ├── api/v1/          REST routes (auth, conversations, ai, crm, reports, ...)
-│   │   ├── ai/
-│   │   │   ├── pipeline/    Conversation pipeline: state, nodes (agents), graph
-│   │   │   ├── agents/      Copilot (RAG), follow-up email, executive report agents
-│   │   │   ├── providers/   LLM, speech-to-text and embedding providers (real + mock)
-│   │   │   └── rag/         Vector store and conversation indexer
-│   │   ├── core/            Settings, security, logging, dependencies
-│   │   ├── db/              Models, session, AI-output sanitizer
-│   │   ├── integrations/    PBX / CRM / calendar / email adapters
-│   │   └── workers/         Background processing of uploaded recordings
-│   ├── scripts/             seed.py (demo data), reindex.py (search index)
-│   ├── tests/               Smoke suite, unit and integration tests
-│   ├── start.py             Creates tables, seeds, indexes, starts the server
-│   └── .env.local.example   Template for local settings and API keys
-├── frontend/                Next.js app
-│   └── src/
-│       ├── app/             Pages: (auth) login/register, (dashboard) app pages
-│       ├── components/      ui/ (shadcn), layout/, conversation/, auth/
-│       └── lib/             API client, auth store, helpers
-└── docs/
-    ├── SPEC.md              Full project requirements and acceptance criteria
-    ├── ARCHITECTURE.md      System architecture
-    ├── AGENT_DOCS.md        AI agent inventory
-    └── TEST_RECORDING.md    Sample call script for testing real transcription
-```
-
----
-
-## Getting started
-
-### Prerequisites
-
-- **Python 3.11+**
-- **Node.js 20.9+** and npm
-- **ffmpeg** for real transcription: `brew install ffmpeg` (macOS) or `winget install ffmpeg` (Windows)
-- A free **Groq API key** from https://console.groq.com/keys (optional; the app runs in mock mode without one)
-
-PostgreSQL and Redis are **not** required for local development.
-
-### 1. Backend
+### Docker
 
 ```bash
+docker compose up --build
+```
+
+Open http://localhost:3000 (API docs: http://localhost:8000/api/docs). AI runs in mock mode until you add keys to `backend/.env.local`.
+
+### Local development
+
+```bash
+# Backend (Python 3.11+)
 cd backend
 python3 -m venv venv
+./venv/bin/pip install -r requirements-dev.txt
+cp .env.local.example .env.local       # add your Groq key, or set LLM_PROVIDER/STT_PROVIDER to "mock"
+./venv/bin/python start.py             # migrates, seeds demo data, indexes, serves on :8000
 
-# macOS / Linux
-./venv/bin/pip install fastapi "uvicorn[standard]" sqlalchemy alembic aiosqlite greenlet asyncpg psycopg2-binary \
-  "python-jose[cryptography]" passlib bcrypt pydantic pydantic-settings email-validator openai tenacity \
-  structlog celery redis aiofiles httpx python-slugify rich pypdf python-docx python-multipart chromadb
-
-cp .env.local.example .env.local
-```
-
-On Windows (PowerShell), use `.\venv\Scripts\pip install ...` with the same packages and `Copy-Item .env.local.example .env.local`.
-
-Open `backend/.env.local` and set your Groq key:
-
-```bash
-LLM_API_KEY="gsk_your_groq_key_here"
-```
-
-`.env.local` is ignored by git, so your key is never committed. Don't put real keys in `backend/.env`, which is tracked. To run without a key, set `LLM_PROVIDER="mock"` and `STT_PROVIDER="mock"`.
-
-Start the backend:
-
-```bash
-./venv/bin/python start.py          # Windows: .\venv\Scripts\python start.py
-```
-
-This creates the database tables, loads the demo data, builds the search index and starts the API with auto-reload.
-
-- API: http://localhost:8000
-- Interactive API docs: http://localhost:8000/api/docs
-
-The first real search downloads the ~80 MB embedding model to `~/.cache/chroma`.
-
-### 2. Frontend
-
-In a second terminal:
-
-```bash
+# Frontend (Node 20.9+), in a second terminal
 cd frontend
 npm install --legacy-peer-deps
-npm run dev
+npm run dev                            # http://localhost:3000
 ```
 
-Open http://localhost:3000.
+Full instructions, Windows commands and every environment variable: [docs/SETUP.md](docs/SETUP.md).
 
 ### Demo accounts
 
@@ -125,87 +60,69 @@ Open http://localhost:3000.
 | Manager | manager@demo.talkwiseai.com | manager123 |
 | Agent | agent@demo.talkwiseai.com | agent123 |
 
-You can also create a new workspace from the **Create one** link on the login page.
-
-### Try the full pipeline
-
-Record the short script in `docs/TEST_RECORDING.md`, then upload it on the **Conversations** page. The "Expected results" table in that file shows what the analysis should find. A 1-minute call takes about 25 seconds to process with Groq.
-
----
-
-## Configuration
-
-Settings are read from `backend/.env` (committed placeholders), then `backend/.env.local` (your machine, git-ignored), then real environment variables, with later sources winning.
-
-| Variable | Default in `.env.local.example` | Purpose |
-|---|---|---|
-| `DATABASE_URL` / `DATABASE_SYNC_URL` | `./storage/talkwiseai.db` (SQLite) | Async URL for the API, sync URL for scripts and the worker. Use `postgresql+asyncpg://...` / `postgresql://...` for Postgres |
-| `LLM_PROVIDER` | `openai` | `openai` (any OpenAI-compatible API) or `mock` |
-| `LLM_BASE_URL` | `https://api.groq.com/openai/v1` | Leave empty for OpenAI itself |
-| `LLM_MODEL` | `openai/gpt-oss-120b` | Must be a model your key can use |
-| `LLM_REASONING_EFFORT` | `low` | Only for reasoning models; leave empty otherwise |
-| `LLM_API_KEY` | – | Your Groq (or OpenAI) key |
-| `LLM_MAX_CONCURRENCY` | `3` | Parallel AI calls; keeps free-tier rate limits happy |
-| `STT_PROVIDER` | `whisper_api` | `whisper_api` (hosted), `whisper_local` (needs `openai-whisper`), or `mock` |
-| `STT_API_MODEL` | `whisper-large-v3-turbo` | Hosted Whisper model |
-| `STT_MAX_UPLOAD_MB` | `25` | Larger recordings are compressed and split automatically |
-| `EMBEDDING_PROVIDER` | `local` | `local` (ONNX, free), `openai`, or `mock` |
-| `CRM_PROVIDER` | `mock` | Only the mock CRM adapter exists so far |
-
-In **mock mode**, every upload returns the same sample transcript and analysis. The Copilot, email and report features show search excerpts or data-only drafts instead of AI-written text.
+To try the full pipeline with real AI, record the script in [docs/TEST_RECORDING.md](docs/TEST_RECORDING.md) and upload it on the **Conversations** page.
 
 ---
 
 ## Features
 
-**Working**
-
-- Sign in and sign up, organization workspaces, roles (admin, manager, agent)
-- Upload audio or video (MP3, WAV, M4A, OGG, FLAC, MP4, MOV, ...) with live processing progress
-- Transcription with timestamps, and AI speaker-role labelling (e.g. Sales Representative / Customer)
-- AI analysis per conversation:
+- **Accounts and roles:** sign up, sign in, forgot and reset password, change password, organization workspaces. Admins manage the team (add members, change roles, deactivate accounts); agents see only their own conversations.
+- **Ingestion:** upload audio or video with live progress, or import calls from the TalkWisely PBX adapter (manual sync or scheduled auto-sync).
+- **Transcription:** timestamps, AI speaker-role labelling, editable speaker names and talk-time per speaker.
+- **AI analysis per conversation:**
   - Summary, key topics, decisions and next steps
   - Sentiment, customer intent and pain points
   - Sales intelligence (lead score, purchase intent, deal health, buying signals) and objections
-  - Action items, meeting minutes, recommendations and agent quality score
-- CRM update proposals you can review, edit, approve or reject; approval writes through the CRM adapter and is audit-logged
-- Follow-up email drafts you can edit, copy or open in your mail app; nothing is sent automatically
-- **Ask AI** about a single conversation, and an organization-wide **AI Copilot** with cited sources
-- Knowledge base: upload PDF, DOCX, TXT or MD files and ask questions about them
-- Semantic search index that survives restarts
-- Dashboard, sales pipeline, analytics, action items, team role management, reports with CSV export
-- In-app notifications when processing finishes or fails
-- Light, dark and system themes
+  - Competitors and other entities
+  - Action items, meeting minutes, recommendations and an AI quality score for the agent
+- **Human in the loop:** CRM update proposals you review, edit, approve or reject; follow-up email drafts that are never sent automatically.
+- **Search and Copilot:** ask about one conversation or across all of them and the knowledge base, with cited sources.
+- **Work management:** action items with owners, due dates, priorities and overdue tracking; leads and an eight-stage sales pipeline; meetings with downloadable minutes.
+- **Analytics and reports:** dashboard and analytics with date, type and team-member filters and period-over-period changes; executive, conversation, sales, agent performance, sentiment and objection reports, saved and downloadable as PDF, CSV or Markdown.
+- **Operations:** notifications, preferences that change behavior, integration settings, audit log, rate limiting, reprocessing.
 
-**Mock or placeholder for now**
+### What is mocked
 
-- TalkWisely PBX, CRM, calendar and email integrations use mock adapters (no real third-party APIs yet)
-- The Leads and Meetings pages are placeholders
-- The dashboard's trend badges and "Conversation Volume" chart show sample values
-- Settings toggles aren't saved
+- The TalkWisely PBX, CRM, calendar and email integrations use mock adapters, because the real APIs aren't available to this project. The Integrations page labels them as mocks.
+- Without an AI key, mock mode returns the same sample transcript and analysis for every upload.
 
 ---
 
-## AI pipeline
+## How the analysis works
 
-Each uploaded recording goes through these steps:
+```
+upload -> speech-to-text -> LangGraph pipeline -> validate & store -> index for search -> notify
 
-1. **Transcription**: ffmpeg converts the audio to 16 kHz mono, then hosted Whisper transcribes it.
-2. **Transcript cleaning**: speaker turns are labelled with roles based on what each person says.
-3. **Classification**: conversation type and purpose.
-4. **Parallel analysis** (8 agents at once):
-   - Summary
-   - Sentiment
-   - Intent
-   - Pain points
-   - Sales intelligence
-   - Objections
-   - Entities
-   - Action items
-5. **Meeting minutes**, then **recommendations**, then **CRM proposals**, then **agent quality score**.
-6. **Save and index**: results are validated against the database schema, stored, and indexed for search. A notification is sent when done.
+pipeline:  validate_input -> clean_transcript -> classify
+           -> summarize | sentiment | intent | pain_points | sales_intelligence | objections | entities | action_items
+           -> aggregate -> meeting_minutes -> crm_update -> recommendations -> agent_score
+```
 
-Outside the pipeline, the **Copilot**, **follow-up email** and **executive report** agents answer on demand. All agents are told to separate facts from inferences and to reply "Not found in the available conversations." rather than invent details. See `docs/AGENT_DOCS.md` for the full agent list.
+Each agent returns JSON that is validated against its schema before storage; unknown values are stored as null rather than guessed. On a small hand-labelled evaluation set with Groq `openai/gpt-oss-120b`, the pipeline classified conversation type and intent correctly in all six calls and reached F1 scores of 84% for objections, 89% for competitors and 80% for action items. Details: [docs/AI_ARCHITECTURE.md](docs/AI_ARCHITECTURE.md) and [backend/evaluation/README.md](backend/evaluation/README.md).
+
+---
+
+## Project structure
+
+```
+Talkwisely/
+├── backend/
+│   ├── app/                 FastAPI app (api, ai, core, db, integrations, services, workers)
+│   ├── alembic/             Database migrations
+│   ├── evaluation/          AI evaluation dataset, runner and results
+│   ├── scripts/             seed.py, reindex.py, generate_docs.py
+│   ├── tests/               unit, integration and end-to-end tests
+│   ├── start.py             Local dev server (migrate, seed, index, serve)
+│   └── Dockerfile
+├── frontend/
+│   ├── src/app/             Pages: (auth) and (dashboard)
+│   ├── src/components/      shadcn/ui and app components
+│   ├── src/lib/             Typed API modules, auth store, helpers
+│   └── Dockerfile
+├── docs/                    Documentation (below)
+├── docker-compose.yml       PostgreSQL + API + web app
+└── docker-compose.celery.yml  Adds Redis, Celery workers and a Chroma server
+```
 
 ---
 
@@ -213,44 +130,48 @@ Outside the pipeline, the **Copilot**, **follow-up email** and **executive repor
 
 ```bash
 # Backend (from backend/)
-./venv/bin/python scripts/seed.py          # reload demo data (skips what already exists)
-./venv/bin/python scripts/reindex.py       # index anything missing from search
-./venv/bin/python scripts/reindex.py --all # rebuild the whole search index
-./venv/bin/python tests/run_tests.py       # quick smoke tests (no pytest needed)
-
-./venv/bin/pip install pytest pytest-asyncio pytest-cov
-./venv/bin/pytest tests/ -v
+./venv/bin/pytest                            # all tests (mock providers, throwaway database)
+./venv/bin/python -m app.db.migrate          # apply migrations
+./venv/bin/python scripts/seed.py            # reload demo data
+./venv/bin/python scripts/reindex.py --all   # rebuild the search index
+./venv/bin/python -m evaluation.run_eval     # AI evaluation (needs a real model)
+./venv/bin/python scripts/generate_docs.py   # refresh docs/API.md and docs/DATABASE.md
 
 # Frontend (from frontend/)
-npm run lint
 npx tsc --noEmit
-npx shadcn@latest add <component>          # add a shadcn/ui component
+npm run lint
+npm run build
 ```
-
----
-
-## Known limitations
-
-- **Demo data:** the 8 seeded conversations share placeholder summaries and transcripts, so Copilot answers about them aren't meaningful. Upload real recordings for realistic results.
-- **Page reload:** reloading a dashboard page in the browser signs you out; navigating within the app works.
-- **Speaker labels:** these come from the AI reading the conversation, not from voice recognition, so similar-sounding turns can be mislabelled.
-- **AI accuracy:** AI output can still contain mistakes. Review CRM changes and emails before using them.
-- **Not built yet:**
-  - Docker setup
-  - Database migrations (schema changes need a database reset)
-  - AI evaluation dataset
-  - End-to-end tests
 
 ---
 
 ## Documentation
 
-- `docs/SPEC.md` — complete requirements and final acceptance criteria
-- `docs/ARCHITECTURE.md` — system architecture
-- `docs/AGENT_DOCS.md` — AI agents and safety rules
-- `docs/TEST_RECORDING.md` — test call script and expected results
-- `CLAUDE.md` — developer notes on architecture and conventions
-- API reference — http://localhost:8000/api/docs (Swagger) and http://localhost:8000/api/redoc
+| Document | Contents |
+|---|---|
+| [docs/SPEC.md](docs/SPEC.md) | Requirements and final acceptance criteria |
+| [docs/SETUP.md](docs/SETUP.md) | Setup guide and environment variables |
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Using the app, page by page and by role |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture, data flow, security |
+| [docs/AI_ARCHITECTURE.md](docs/AI_ARCHITECTURE.md) | LangGraph pipeline, validation, providers, search, evaluation results |
+| [docs/AGENT_DOCS.md](docs/AGENT_DOCS.md) | The 17 agents and their safety rules |
+| [docs/API.md](docs/API.md) | Every endpoint and who may call it (also live at `/api/docs`) |
+| [docs/DATABASE.md](docs/DATABASE.md) | Tables, columns and relationships |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Adapters, PBX import, CRM approval, adding real providers |
+| [docs/TESTING.md](docs/TESTING.md) | Test suite and how to run it |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deployment topology and production checklist |
+| [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | Conventions, adding agents and endpoints, migrations |
+| [docs/TEST_RECORDING.md](docs/TEST_RECORDING.md) | Test call script with expected results |
+
+---
+
+## Known limitations
+
+- **Speaker labels** come from pauses in the audio and the AI reading the conversation, not from voice recognition. Rename speakers when they're wrong.
+- **Demo data:** the seeded conversations share placeholder transcripts, so Copilot answers about them aren't meaningful. Upload real recordings for realistic results.
+- **AI accuracy:** results can contain mistakes (purchase intent was the weakest task in evaluation). Review CRM changes and emails before using them.
+- **Integrations** are mock adapters until real provider APIs are connected.
+- **Scale:** the built-in rate limiter and embedded vector store are per process; run Celery with a Chroma server and a shared rate-limit store for multiple API replicas.
 
 ---
 

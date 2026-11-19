@@ -92,14 +92,32 @@ class CopilotAgent:
         conversation_id: Optional[str] = None,
         chat_history: Optional[list[dict]] = None,
         db_session: Optional[AsyncSession] = None,
+        owner_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Retrieve context, then synthesize a grounded, cited answer."""
+        """Retrieve context, then synthesize a grounded, cited answer.
+
+        ``owner_id`` limits conversation content to conversations that user uploaded
+        (agents); knowledge-base documents stay visible to everyone in the organization.
+        """
         hits = await vector_store.search(
             query=query,
             organization_id=organization_id,
             conversation_id=conversation_id,
-            limit=RETRIEVAL_LIMIT,
+            limit=RETRIEVAL_LIMIT * 3 if owner_id else RETRIEVAL_LIMIT,
         )
+        if owner_id:
+            allowed: set[str] = set()
+            if db_session is not None:
+                allowed = set((await db_session.execute(
+                    select(Conversation.id).where(
+                        Conversation.organization_id == organization_id, Conversation.created_by == owner_id
+                    )
+                )).scalars().all())
+            hits = [
+                h for h in hits
+                if h.get("metadata", {}).get("doc_type") == "knowledge_base"
+                or h.get("metadata", {}).get("conversation_id") in allowed
+            ][:RETRIEVAL_LIMIT]
         hits = [h for h in hits if h.get("score", 0) >= MIN_RELEVANCE]
         # Near-identical chunks add noise without adding evidence
         seen: set[str] = set()
@@ -137,7 +155,7 @@ class CopilotAgent:
                 records = (
                     await self._conversation_records(db_session, organization_id, conversation_id)
                     if conversation_id
-                    else await self._organization_index(db_session, organization_id)
+                    else await self._organization_index(db_session, organization_id, owner_id)
                 )
             except Exception as e:
                 logger.error("Copilot record lookup failed", error=str(e))
@@ -234,13 +252,16 @@ class CopilotAgent:
             )
         return "\n".join(lines)
 
-    async def _organization_index(self, db: AsyncSession, org_id: str) -> str:
+    async def _organization_index(self, db: AsyncSession, org_id: str, owner_id: Optional[str] = None) -> str:
+        conditions = [Conversation.organization_id == org_id, Conversation.status == "completed"]
+        if owner_id:
+            conditions.append(Conversation.created_by == owner_id)
         rows = (await db.execute(
             select(Conversation, SalesInsight, SentimentResult, Summary)
             .outerjoin(SalesInsight, SalesInsight.conversation_id == Conversation.id)
             .outerjoin(SentimentResult, SentimentResult.conversation_id == Conversation.id)
             .outerjoin(Summary, Summary.conversation_id == Conversation.id)
-            .where(Conversation.organization_id == org_id, Conversation.status == "completed")
+            .where(*conditions)
             .order_by(Conversation.created_at.desc())
             .limit(INDEX_SIZE)
         )).all()

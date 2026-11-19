@@ -15,10 +15,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.access import conversation_scope
 from app.core.config import settings
 from app.core.dependencies import get_current_user, get_db
 from app.db.models import AuditLog, CRMRecord, Conversation
 from app.integrations.crm.crm_adapter import CRMProvider, MockCRMProvider
+from app.integrations.registry import get_integration, mark_synced
 
 router = APIRouter(prefix="/crm", tags=["CRM Intelligence & Proposals"])
 
@@ -40,13 +42,15 @@ class ApproveProposalRequest(BaseModel):
     edited_changes: Optional[dict[str, Any]] = None
 
 
-def get_crm_provider() -> CRMProvider:
-    """Return the configured CRM adapter. Only the mock adapter is implemented so far."""
-    if settings.crm_provider == "mock":
-        return MockCRMProvider()
+def get_crm_provider(integration=None) -> CRMProvider:
+    """Return the organization's CRM adapter. Only the mock adapter is implemented so far."""
+    provider = integration.provider if integration is not None else settings.crm_provider
+    if provider == "mock":
+        name = ((integration.config or {}).get("crm_name") if integration is not None else None) or "Salesforce"
+        return MockCRMProvider(crm_name=f"{name} (mock)")
     raise HTTPException(
         status_code=501,
-        detail=f"CRM provider '{settings.crm_provider}' is not implemented yet. Set CRM_PROVIDER=mock.",
+        detail=f"CRM provider '{provider}' is not implemented yet. Choose the mock CRM under Integrations.",
     )
 
 
@@ -65,11 +69,11 @@ def _to_response(record: CRMRecord, title: Optional[str] = None) -> CRMProposalR
     )
 
 
-async def _get_pending_record(db: AsyncSession, proposal_id: str, organization_id: str) -> tuple[CRMRecord, str]:
+async def _get_pending_record(db: AsyncSession, proposal_id: str, user) -> tuple[CRMRecord, str]:
     res = await db.execute(
         select(CRMRecord, Conversation.title)
         .join(Conversation, CRMRecord.conversation_id == Conversation.id)
-        .where(CRMRecord.id == proposal_id, CRMRecord.organization_id == organization_id)
+        .where(CRMRecord.id == proposal_id, *conversation_scope(user))
     )
     row = res.first()
     if not row:
@@ -91,7 +95,7 @@ async def list_crm_proposals(
     query = (
         select(CRMRecord, Conversation.title)
         .join(Conversation, CRMRecord.conversation_id == Conversation.id)
-        .where(CRMRecord.organization_id == current_user.organization_id)
+        .where(*conversation_scope(current_user))
     )
 
     if status_filter:
@@ -112,8 +116,11 @@ async def approve_crm_proposal(
     db: AsyncSession = Depends(get_db),
 ):
     """Approve (and optionally edit) a proposed CRM update, then write it through the CRM adapter."""
-    record, title = await _get_pending_record(db, proposal_id, current_user.organization_id)
-    provider = get_crm_provider()
+    record, title = await _get_pending_record(db, proposal_id, current_user)
+    integration = await get_integration(db, current_user.organization_id, "crm")
+    if not integration.is_enabled:
+        raise HTTPException(status_code=409, detail="The CRM integration is turned off. An admin can turn it on under Integrations.")
+    provider = get_crm_provider(integration)
 
     if payload and payload.edited_changes:
         record.proposed_changes = payload.edited_changes
@@ -131,6 +138,7 @@ async def approve_crm_proposal(
     record.status = "applied"
     record.approved_by = current_user.id
     record.applied_at = datetime.utcnow()
+    mark_synced(integration)
     db.add(AuditLog(
         organization_id=current_user.organization_id,
         user_id=current_user.id,
@@ -151,7 +159,7 @@ async def reject_crm_proposal(
     db: AsyncSession = Depends(get_db),
 ):
     """Reject a proposed CRM update. Nothing is written to the CRM."""
-    record, title = await _get_pending_record(db, proposal_id, current_user.organization_id)
+    record, title = await _get_pending_record(db, proposal_id, current_user)
 
     record.status = "rejected"
     db.add(AuditLog(

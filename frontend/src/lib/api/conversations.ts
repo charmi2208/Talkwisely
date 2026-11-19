@@ -55,6 +55,7 @@ export interface TranscriptResponse {
   duration_seconds: number | null;
   segments: TranscriptSegment[];
   speakers: Array<{ id: string; speaker_label: string; display_name: string; role: string | null }>;
+  speaker_stats?: Array<{ label: string; turns: number; talk_time_seconds: number; words: number; talk_share: number }>;
 }
 
 export interface ProcessingStatus {
@@ -127,5 +128,15 @@ export const conversationsApi = {
 
   delete: async (id: string): Promise<void> => {
     await apiClient.delete(`/conversations/${id}`);
+  },
+
+  reprocess: async (id: string): Promise<{ conversation_id: string; job_id: string; status: string }> => {
+    const res = await apiClient.post(`/conversations/${id}/reprocess`);
+    return res.data;
+  },
+
+  renameSpeakers: async (id: string, renames: Record<string, string>): Promise<TranscriptResponse> => {
+    const res = await apiClient.patch<TranscriptResponse>(`/conversations/${id}/speaker-labels`, { renames });
+    return res.data;
   },
 };

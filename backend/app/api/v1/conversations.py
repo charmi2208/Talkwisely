@@ -1,18 +1,19 @@
 """
 Conversations API Routes.
 
-GET  /api/v1/conversations           — List conversations (paginated, filtered)
-POST /api/v1/conversations/upload    — Upload audio/video file
-GET  /api/v1/conversations/{id}      — Get conversation details
-DELETE /api/v1/conversations/{id}    — Delete conversation
-GET  /api/v1/conversations/{id}/transcript  — Get transcript segments
-GET  /api/v1/conversations/{id}/insights    — Get all AI insights
-GET  /api/v1/conversations/{id}/sales       — Sales intelligence
-GET  /api/v1/conversations/{id}/meeting     — Meeting intelligence
-GET  /api/v1/conversations/{id}/sentiment   — Sentiment
-GET  /api/v1/conversations/{id}/actions     — Action items
-GET  /api/v1/conversations/{id}/recommendations — Recommendations
-POST /api/v1/conversations/{id}/reprocess   — Re-run AI pipeline
+GET    /api/v1/conversations                       — List conversations (paginated, filtered)
+POST   /api/v1/conversations/upload                — Upload audio/video file
+GET    /api/v1/conversations/{id}                  — Conversation details
+DELETE /api/v1/conversations/{id}                  — Delete conversation and its data
+GET    /api/v1/conversations/{id}/audio            — Stream the recording
+GET    /api/v1/conversations/{id}/transcript       — Transcript segments, speakers, talk time
+PATCH  /api/v1/conversations/{id}/speaker-labels   — Rename speakers in the transcript
+GET    /api/v1/conversations/{id}/insights         — All AI insights
+GET    /api/v1/conversations/{id}/processing-status — Poll pipeline progress
+POST   /api/v1/conversations/{id}/reprocess        — Re-run transcription and the AI pipeline
+
+Agents only see conversations they uploaded; admins and managers see the whole
+organization (see app/core/access.py).
 """
 
 import os
@@ -26,16 +27,17 @@ import aiofiles
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.ai.rag.vector_store import vector_store
+from app.core.access import conversation_scope
 from app.core.config import settings
 from app.core.dependencies import get_current_user, get_db
 from app.core.logging import get_logger
 from app.db.models import (
-    ActionItem, AuditLog, Conversation, MeetingMinutes, Objection, ProcessingJob,
+    ActionItem, AuditLog, Conversation, CRMRecord, MeetingMinutes, Objection, ProcessingJob,
     Recommendation, SalesInsight, SentimentResult, Speaker, Summary, TranscriptSegment, IntentResult
 )
 
@@ -102,6 +104,7 @@ class TranscriptResponse(BaseModel):
     duration_seconds: float | None
     segments: list[dict]
     speakers: list[dict]
+    speaker_stats: list[dict] = []
 
 
 class InsightsResponse(BaseModel):
@@ -152,6 +155,33 @@ async def _save_upload(upload_file: UploadFile, dest_dir: str) -> tuple[str, int
     return dest_path, size
 
 
+async def _enqueue(db: AsyncSession, background_tasks: BackgroundTasks, conv_id: str, job_id: str, file_path: str) -> None:
+    from app.workers.conversation_tasks import enqueue_conversation_processing
+
+    task_id = enqueue_conversation_processing(background_tasks, conv_id, job_id, file_path)
+    if task_id:
+        job = await db.get(ProcessingJob, job_id)
+        if job:
+            job.celery_task_id = task_id
+            await db.commit()
+
+
+def _speaker_stats(segments) -> list[dict]:
+    """Talk time, turns and word count per transcript speaker label, longest first."""
+    stats: dict[str, dict] = {}
+    for seg in segments:
+        label = seg.speaker_label or "Unknown speaker"
+        entry = stats.setdefault(label, {"label": label, "turns": 0, "talk_time_seconds": 0.0, "words": 0})
+        entry["turns"] += 1
+        entry["talk_time_seconds"] += max(0.0, (seg.end_time or 0) - (seg.start_time or 0))
+        entry["words"] += len((seg.text or "").split())
+    total = sum(e["talk_time_seconds"] for e in stats.values()) or 1.0
+    for entry in stats.values():
+        entry["talk_time_seconds"] = round(entry["talk_time_seconds"], 1)
+        entry["talk_share"] = round(entry["talk_time_seconds"] / total, 3)
+    return sorted(stats.values(), key=lambda e: e["talk_time_seconds"], reverse=True)
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -171,8 +201,7 @@ async def list_conversations(
     """List conversations for the current user's organization."""
     from sqlalchemy import and_, or_
 
-    org_id = current_user.organization_id
-    filters = [Conversation.organization_id == org_id]
+    filters = conversation_scope(current_user)
 
     if conversation_type:
         filters.append(Conversation.conversation_type == conversation_type)
@@ -254,7 +283,7 @@ async def upload_conversation(
     filename = file.filename or "upload"
     is_valid, err = _validate_file(filename, file.size or 0)
     if not is_valid:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
+        raise HTTPException(status_code=422, detail=err)
 
     # Save file
     upload_dir = os.path.join(settings.storage_local_path, "uploads", current_user.organization_id)
@@ -304,9 +333,8 @@ async def upload_conversation(
 
     await db.commit()
 
-    # Queue background processing task safely without blocking HTTP response
-    from app.workers.conversation_tasks import run_conversation_pipeline_direct
-    background_tasks.add_task(run_conversation_pipeline_direct, conv_id, job_id, file_path)
+    # Process in the background (in-process or on Celery, per TASK_QUEUE)
+    await _enqueue(db, background_tasks, conv_id, job_id, file_path)
 
     logger.info("Conversation uploaded and queued", conv_id=conv_id, job_id=job_id)
 
@@ -331,7 +359,7 @@ async def get_conversation(
         .options(selectinload(Conversation.speakers))
         .where(
             Conversation.id == conversation_id,
-            Conversation.organization_id == current_user.organization_id,
+            *conversation_scope(current_user),
         )
     )
     conv = result.scalar_one_or_none()
@@ -373,7 +401,7 @@ async def get_conversation_audio(
     result = await db.execute(
         select(Conversation).where(
             Conversation.id == conversation_id,
-            Conversation.organization_id == current_user.organization_id,
+            *conversation_scope(current_user),
         )
     )
     conv = result.scalar_one_or_none()
@@ -401,7 +429,7 @@ async def get_transcript(
     conv_result = await db.execute(
         select(Conversation).where(
             Conversation.id == conversation_id,
-            Conversation.organization_id == current_user.organization_id,
+            *conversation_scope(current_user),
         )
     )
     conv = conv_result.scalar_one_or_none()
@@ -449,7 +477,58 @@ async def get_transcript(
             }
             for sp in speakers
         ],
+        speaker_stats=_speaker_stats(segments),
     )
+
+
+class SpeakerRenameRequest(BaseModel):
+    renames: dict[str, str]  # current transcript label -> new name
+
+
+@router.patch("/{conversation_id}/speaker-labels", response_model=TranscriptResponse)
+async def rename_speakers(
+    conversation_id: str,
+    payload: SpeakerRenameRequest,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rename speakers across the transcript, e.g. "Speaker 1" -> "Dana (Customer)".
+
+    Speech-to-text can't always tell voices apart, so this lets people correct labels.
+    """
+    conv = (await db.execute(
+        select(Conversation).where(Conversation.id == conversation_id, *conversation_scope(current_user))
+    )).scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    renames = {old.strip(): new.strip()[:50] for old, new in payload.renames.items() if old.strip() and new.strip()}
+    if not renames:
+        raise HTTPException(status_code=400, detail="Give at least one speaker to rename")
+
+    segments = (await db.execute(
+        select(TranscriptSegment).where(TranscriptSegment.conversation_id == conversation_id)
+    )).scalars().all()
+    for seg in segments:
+        if seg.speaker_label in renames:
+            seg.speaker_label = renames[seg.speaker_label]
+    speakers = (await db.execute(select(Speaker).where(Speaker.conversation_id == conversation_id))).scalars().all()
+    for sp in speakers:
+        current = sp.display_name or sp.speaker_label
+        if current in renames:
+            sp.display_name = renames[current]
+
+    db.add(AuditLog(
+        id=str(uuid.uuid4()),
+        organization_id=current_user.organization_id,
+        user_id=current_user.id,
+        action="rename_speakers",
+        resource_type="conversation",
+        resource_id=conversation_id,
+        details={"renames": renames},
+    ))
+    await db.commit()
+    return await get_transcript(conversation_id, current_user, db)
 
 
 @router.get("/{conversation_id}/insights", response_model=InsightsResponse)
@@ -463,7 +542,7 @@ async def get_insights(
     conv_result = await db.execute(
         select(Conversation).where(
             Conversation.id == conversation_id,
-            Conversation.organization_id == current_user.organization_id,
+            *conversation_scope(current_user),
         )
     )
     if not conv_result.scalar_one_or_none():
@@ -640,7 +719,7 @@ async def get_processing_status(
     conv_result = await db.execute(
         select(Conversation).where(
             Conversation.id == conversation_id,
-            Conversation.organization_id == current_user.organization_id,
+            *conversation_scope(current_user),
         )
     )
     conv = conv_result.scalar_one_or_none()
@@ -681,7 +760,7 @@ async def delete_conversation(
     result = await db.execute(
         select(Conversation).where(
             Conversation.id == conversation_id,
-            Conversation.organization_id == current_user.organization_id,
+            *conversation_scope(current_user),
         )
     )
     conv = result.scalar_one_or_none()
@@ -692,6 +771,7 @@ async def delete_conversation(
     if conv.file_path and os.path.exists(conv.file_path):
         os.remove(conv.file_path)
 
+    await db.execute(sa_delete(CRMRecord).where(CRMRecord.conversation_id == conversation_id))
     await db.delete(conv)
 
     db.add(AuditLog(
@@ -706,3 +786,78 @@ async def delete_conversation(
     await db.commit()
     await vector_store.delete_by_conversation(conversation_id)
     logger.info("Conversation deleted", conv_id=conversation_id, user_id=current_user.id)
+
+
+@router.post("/{conversation_id}/reprocess", response_model=UploadResponse)
+async def reprocess_conversation(
+    conversation_id: str,
+    background_tasks: BackgroundTasks,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear a conversation's transcript and insights and run the whole pipeline again.
+
+    Useful after a failure, or after switching from mock to real AI providers.
+    """
+    conv = (await db.execute(
+        select(Conversation)
+        .options(
+            selectinload(Conversation.speakers), selectinload(Conversation.transcript_segments),
+            selectinload(Conversation.summary), selectinload(Conversation.sentiment),
+            selectinload(Conversation.intent_result), selectinload(Conversation.sales_insight),
+            selectinload(Conversation.action_items), selectinload(Conversation.objections),
+            selectinload(Conversation.entities), selectinload(Conversation.pain_points),
+            selectinload(Conversation.meeting_minutes), selectinload(Conversation.recommendations),
+            selectinload(Conversation.agent_score),
+        )
+        .where(Conversation.id == conversation_id, *conversation_scope(current_user))
+    )).scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if conv.status in ("queued", "processing", "transcribing", "analyzing"):
+        raise HTTPException(status_code=409, detail="This conversation is already being processed")
+    if not conv.file_path or not os.path.exists(conv.file_path):
+        raise HTTPException(status_code=409, detail="The original recording is no longer stored, so it can't be reprocessed")
+
+    # Drop previous results (delete-orphan cascades remove the rows)
+    conv.transcript_segments = []
+    conv.speakers = []
+    conv.summary = None
+    conv.sentiment = None
+    conv.intent_result = None
+    conv.sales_insight = None
+    conv.action_items = []
+    conv.objections = []
+    conv.entities = []
+    conv.pain_points = []
+    conv.meeting_minutes = None
+    conv.recommendations = []
+    conv.agent_score = None
+    await db.execute(sa_delete(CRMRecord).where(CRMRecord.conversation_id == conversation_id, CRMRecord.status == "pending"))
+    conv.status = "queued"
+    conv.error_message = None
+
+    job_id = str(uuid.uuid4())
+    db.add(ProcessingJob(
+        id=job_id, conversation_id=conversation_id, job_type="reprocess",
+        status="queued", progress=0, current_step="Queued",
+    ))
+    db.add(AuditLog(
+        id=str(uuid.uuid4()),
+        organization_id=current_user.organization_id,
+        user_id=current_user.id,
+        action="reprocess",
+        resource_type="conversation",
+        resource_id=conversation_id,
+    ))
+    await db.commit()
+    await vector_store.delete_by_conversation(conversation_id)
+    await _enqueue(db, background_tasks, conversation_id, job_id, conv.file_path)
+
+    return UploadResponse(
+        conversation_id=conversation_id,
+        job_id=job_id,
+        title=conv.title,
+        status="queued",
+        message="Reprocessing has started.",
+    )

@@ -1,0 +1,147 @@
+{
+  "description": "Hand-written business conversations with expected labels, used to evaluate the TalkWiseAI agents. Transcripts are synthetic; the labels were written and checked by the project team against each transcript. Where more than one label is defensible, every acceptable value is listed.",
+  "version": 1,
+  "examples": [
+    {
+      "id": "sales-discovery-pbx",
+      "title": "Discovery call: 200-seat PBX migration",
+      "segments": [
+        ["SPEAKER_00", "Hi Dana, thanks for making time today. I understand Northwind is reviewing its phone system?"],
+        ["SPEAKER_01", "Yes. We have about 200 staff on an old on-premise PBX and calls drop several times a day."],
+        ["SPEAKER_00", "That sounds painful. What would a good outcome look like for you?"],
+        ["SPEAKER_01", "Reliable calls, UK and US numbers, and call recording for compliance. We want to switch before our contract ends in March."],
+        ["SPEAKER_00", "We cover all three. Our Business plan includes recording and local numbers in both countries."],
+        ["SPEAKER_01", "What does it cost? RingCentral quoted us 25 dollars per seat and honestly your list price looks higher."],
+        ["SPEAKER_00", "For 200 seats on an annual plan we can bring it to 24 dollars per seat, including onboarding."],
+        ["SPEAKER_01", "That helps. I'm the decision maker together with our CFO, and we have budget approved for this quarter."],
+        ["SPEAKER_00", "Great. I'll send a written proposal by Friday and set up a demo for your IT team next week."],
+        ["SPEAKER_01", "Perfect, please include the compliance details for call recording."]
+      ],
+      "expected": {
+        "conversation_type": ["sales"],
+        "overall_sentiment": ["positive"],
+        "primary_intent": ["pricing_inquiry", "purchase_intent", "product_inquiry", "demo_request"],
+        "purchase_intent": ["high"],
+        "objection_categories": ["price", "competitor"],
+        "competitors": ["RingCentral"],
+        "action_items": [["proposal"], ["demo"]],
+        "summary_facts": [["200"], ["recording"], ["proposal"], ["march"]]
+      }
+    },
+    {
+      "id": "support-dropped-calls",
+      "title": "Support: repeated dropped calls",
+      "segments": [
+        ["SPEAKER_00", "Thank you for calling support, this is Sam. How can I help?"],
+        ["SPEAKER_01", "This is the third time this week our sales team has had calls cut off mid-conversation. It's costing us deals."],
+        ["SPEAKER_00", "I'm sorry about that. Can you tell me which office is affected?"],
+        ["SPEAKER_01", "The Leeds office. Every call drops after about ten minutes. I'm really frustrated, we pay for premium support."],
+        ["SPEAKER_00", "I can see packet loss on your Leeds trunk. I'm escalating this to our network team as a priority ticket right now."],
+        ["SPEAKER_01", "If this isn't fixed soon we'll look at moving to Vonage."],
+        ["SPEAKER_00", "Understood. I'll call you back tomorrow morning with an update from the network engineers."],
+        ["SPEAKER_01", "Fine. Tomorrow morning, please."]
+      ],
+      "expected": {
+        "conversation_type": ["customer_support", "complaint"],
+        "overall_sentiment": ["negative", "mixed"],
+        "primary_intent": ["support_request", "complaint"],
+        "purchase_intent": null,
+        "objection_categories": [],
+        "competitors": ["Vonage"],
+        "action_items": [["escalat"], ["call", "back"]],
+        "summary_facts": [["drop"], ["leeds"], ["escalat"]]
+      }
+    },
+    {
+      "id": "demo-integration-security",
+      "title": "Product demo: CRM integration and security questions",
+      "segments": [
+        ["SPEAKER_00", "Let me share my screen and walk you through the call analytics dashboard."],
+        ["SPEAKER_01", "Looks clean. Does it integrate with Salesforce? Our reps live in Salesforce all day."],
+        ["SPEAKER_00", "We have a native Salesforce integration that logs every call automatically."],
+        ["SPEAKER_01", "Our security team will ask where recordings are stored and whether you're SOC 2 certified."],
+        ["SPEAKER_00", "Recordings stay in UK data centres and we completed SOC 2 Type II last year. I can send the report."],
+        ["SPEAKER_01", "We are also trialling Aircall at the moment, so we'll compare the two."],
+        ["SPEAKER_00", "That's fair. Would a two-week free trial help with the comparison?"],
+        ["SPEAKER_01", "Yes, set up the trial and send the SOC 2 report so security can review it."]
+      ],
+      "expected": {
+        "conversation_type": ["product_demo", "sales"],
+        "overall_sentiment": ["positive", "neutral", "mixed"],
+        "primary_intent": ["product_inquiry", "integration_request", "demo_request"],
+        "purchase_intent": ["medium"],
+        "objection_categories": ["integration", "security", "competitor"],
+        "competitors": ["Aircall"],
+        "action_items": [["trial"], ["soc"]],
+        "summary_facts": [["salesforce"], ["soc 2"], ["trial"]]
+      }
+    },
+    {
+      "id": "internal-q3-planning",
+      "title": "Internal meeting: Q3 support planning",
+      "segments": [
+        ["SPEAKER_00", "Let's start. The goal today is to agree the Q3 plan for the support team."],
+        ["SPEAKER_01", "Ticket volume grew 18 percent last quarter, mostly password resets."],
+        ["SPEAKER_02", "I suggest we add a self-service password reset page. I can have a draft spec ready by the 15th."],
+        ["SPEAKER_00", "Agreed, Priya owns the spec. We also decided to hire one more support agent for the evening shift."],
+        ["SPEAKER_01", "I'll post the job advert this week."],
+        ["SPEAKER_00", "Open question: do we extend weekend coverage? Let's revisit that at next Tuesday's meeting."]
+      ],
+      "expected": {
+        "conversation_type": ["internal_meeting"],
+        "overall_sentiment": ["neutral", "positive"],
+        "primary_intent": ["other", "information_request"],
+        "purchase_intent": null,
+        "objection_categories": [],
+        "competitors": [],
+        "action_items": [["spec"], ["job", "advert"]],
+        "summary_facts": [["password"], ["hire"], ["weekend"]]
+      }
+    },
+    {
+      "id": "followup-negotiation",
+      "title": "Follow-up: contract negotiation",
+      "segments": [
+        ["SPEAKER_00", "Thanks for reviewing the proposal. Where did you land?"],
+        ["SPEAKER_01", "We like the product, but Zoom Phone came in about fifteen percent cheaper."],
+        ["SPEAKER_00", "I understand. Our price includes 24/7 support and call recording, which Zoom charges extra for."],
+        ["SPEAKER_01", "That's a fair point. The other issue is timing; our budget for new tools opens next quarter, not now."],
+        ["SPEAKER_00", "We could start the contract in July so billing lines up with your new budget."],
+        ["SPEAKER_01", "That could work. Send me a revised quote with a July start date and I'll take it to finance."]
+      ],
+      "expected": {
+        "conversation_type": ["follow_up", "sales"],
+        "overall_sentiment": ["mixed", "neutral", "positive"],
+        "primary_intent": ["pricing_inquiry", "purchase_intent"],
+        "purchase_intent": ["medium", "high"],
+        "objection_categories": ["price", "competitor", "timing"],
+        "competitors": ["Zoom"],
+        "action_items": [["quote"]],
+        "summary_facts": [["zoom"], ["july"], ["quote"]]
+      }
+    },
+    {
+      "id": "cancellation-request",
+      "title": "Cancellation request with retention offer",
+      "segments": [
+        ["SPEAKER_00", "Hello, account management, this is Leo."],
+        ["SPEAKER_01", "Hi. I want to cancel our account at the end of the month. We've signed with 8x8."],
+        ["SPEAKER_00", "I'm sorry to hear that. May I ask what led to the decision?"],
+        ["SPEAKER_01", "Mostly cost. We're a small team of eight and the bill went up again this year."],
+        ["SPEAKER_00", "I can offer three months at half price and move you to the Starter plan, which fits a team your size."],
+        ["SPEAKER_01", "I appreciate it, but the contract with 8x8 is already signed. Please just process the cancellation."],
+        ["SPEAKER_00", "Understood. I'll process the cancellation for the 31st and email you a confirmation today."]
+      ],
+      "expected": {
+        "conversation_type": ["customer_support", "complaint", "general_business"],
+        "overall_sentiment": ["negative", "neutral", "mixed"],
+        "primary_intent": ["cancellation"],
+        "purchase_intent": ["low"],
+        "objection_categories": ["price", "competitor"],
+        "competitors": ["8x8"],
+        "action_items": [["cancel"], ["confirmation"]],
+        "summary_facts": [["cancel"], ["8x8"], ["half price"]]
+      }
+    }
+  ]
+}

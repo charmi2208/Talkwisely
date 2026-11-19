@@ -2,9 +2,12 @@
  * Zustand auth store — manages authentication state.
  */
 
+import { useSyncExternalStore } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { UserProfile } from "@/lib/api/auth";
+
+export type Role = "admin" | "manager" | "agent";
 
 interface AuthState {
   user: UserProfile | null;
@@ -59,3 +62,27 @@ export const useAuthStore = create<AuthState>()(
     }
   )
 );
+
+/**
+ * True once the persisted auth state has been read from localStorage.
+ * Route guards must wait for this, or a hard reload looks signed out.
+ */
+export function useAuthHydrated(): boolean {
+  return useSyncExternalStore(
+    (onChange) => useAuthStore.persist.onFinishHydration(onChange),
+    () => useAuthStore.persist.hasHydrated(),
+    () => false, // server render: nothing has been read from localStorage yet
+  );
+}
+
+/** Highest-privilege role the user holds (matches the backend's admin > manager > agent). */
+export function primaryRole(user: UserProfile | null | undefined): Role {
+  const roles = user?.roles ?? [];
+  if (roles.includes("admin")) return "admin";
+  if (roles.includes("manager")) return "manager";
+  return "agent";
+}
+
+export function useRole(): Role {
+  return primaryRole(useAuthStore((s) => s.user));
+}

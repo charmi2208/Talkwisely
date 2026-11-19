@@ -5,13 +5,16 @@ export interface ActionItem {
   conversation_id?: string;
   description: string;
   owner?: string;
-  due_date?: string;
+  due_date?: string | null;
+  due_at?: string | null;
   priority: string;
   status: string;
-  source_timestamp?: number;
-  related_topic?: string;
+  source_timestamp?: number | null;
+  related_topic?: string | null;
   created_at: string;
-  conversation_title?: string;
+  completed_at?: string | null;
+  is_ai_generated?: boolean;
+  conversation_title?: string | null;
 }
 
 export const actionItemsApi = {

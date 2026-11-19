@@ -1,0 +1,152 @@
+{
+  "model": "openai/openai/gpt-oss-120b",
+  "run_at": "2026-11-19T11:27:12.264263",
+  "metrics": {
+    "accuracy": {
+      "conversation_type": 1.0,
+      "overall_sentiment": 1.0,
+      "primary_intent": 1.0,
+      "purchase_intent": 0.5
+    },
+    "extraction": {
+      "objection_categories": {
+        "precision": 0.7777777777777778,
+        "recall": 0.7,
+        "f1": 0.7368421052631577,
+        "tp": 7,
+        "fp": 2,
+        "fn": 3
+      },
+      "competitors": {
+        "precision": 1.0,
+        "recall": 0.6,
+        "f1": 0.7499999999999999,
+        "tp": 3,
+        "fp": 0,
+        "fn": 2
+      },
+      "action_items": {
+        "precision": 0.6666666666666666,
+        "recall": 0.9090909090909091,
+        "f1": 0.7692307692307692,
+        "tp": 10,
+        "fp": 5,
+        "fn": 1
+      }
+    },
+    "summary_fact_recall": 0.9473684210526315,
+    "structured_output_validity": 0.5308641975308642,
+    "agent_responses": 81,
+    "pipeline_completed": 6,
+    "mean_seconds_per_conversation": 63.85498094433266
+  },
+  "predictions": {
+    "sales-discovery-pbx": {
+      "conversation_type": "sales",
+      "overall_sentiment": "positive",
+      "primary_intent": "purchase_intent",
+      "purchase_intent": "high",
+      "objection_categories": [
+        "price"
+      ],
+      "competitors": [
+        "RingCentral"
+      ],
+      "action_items": [
+        "Send a written proposal",
+        "Set up a demo for the IT team",
+        "Include compliance details for call recording in the proposal"
+      ],
+      "executive_summary": "The sales rep presented a cloud phone solution meeting Northwind's needs for reliable calls, UK/US numbers, and compliance recording, offering $24 per seat for 200 seats on an annual plan. The customer, a decision maker, agreed to receive a proposal and a demo for the IT team, with budget already approved for the quarter.",
+      "errors": []
+    },
+    "support-dropped-calls": {
+      "conversation_type": "customer_support",
+      "overall_sentiment": "mixed",
+      "primary_intent": "support_request",
+      "purchase_intent": null,
+      "objection_categories": [
+        "competitor"
+      ],
+      "competitors": [
+        "Vonage"
+      ],
+      "action_items": [
+        "Escalate the Leeds office call drop issue to the network team as a priority ticket",
+        "Call the customer back with an update from the network engineers"
+      ],
+      "executive_summary": "The customer reported repeated call drops affecting the Leeds office, causing lost sales and frustration. The support agent identified packet loss, escalated the issue to the network team as a priority, and promised a follow\u2011up call the next morning.",
+      "errors": []
+    },
+    "demo-integration-security": {
+      "conversation_type": "sales",
+      "overall_sentiment": "neutral",
+      "primary_intent": "integration_request",
+      "purchase_intent": "high",
+      "objection_categories": [
+        "competitor",
+        "integration",
+        "security"
+      ],
+      "competitors": [
+        "Aircall"
+      ],
+      "action_items": [
+        "Set up a two\u2011week free trial for the customer",
+        "Send the SOC 2 Type II report to the customer\u2019s security team"
+      ],
+      "executive_summary": "The sales rep demonstrated the call analytics dashboard and confirmed native Salesforce integration, UK data\u2011center storage, and SOC 2 Type II compliance. The customer requested a two\u2011week free trial and the SOC 2 report to compare with their current Aircall trial.",
+      "errors": []
+    },
+    "internal-q3-planning": {
+      "conversation_type": "internal_meeting",
+      "overall_sentiment": "neutral",
+      "primary_intent": "other",
+      "purchase_intent": null,
+      "objection_categories": [],
+      "competitors": [],
+      "action_items": [
+        "Prepare draft specification for self-service password reset page",
+        "Take ownership of the self-service password reset specification",
+        "Hire one additional support agent for the evening shift",
+        "Post the job advertisement for the new support agent",
+        "Revisit weekend coverage decision at next Tuesday's meeting"
+      ],
+      "executive_summary": "The team reviewed Q3 support plans, noting an 18% rise in ticket volume driven by password resets. They agreed to create a self-service password reset page, hire an additional evening shift agent, and will revisit weekend coverage next week.",
+      "errors": []
+    },
+    "followup-negotiation": {
+      "conversation_type": "sales",
+      "overall_sentiment": "mixed",
+      "primary_intent": "purchase_intent",
+      "purchase_intent": "high",
+      "objection_categories": [
+        "price",
+        "timing"
+      ],
+      "competitors": [],
+      "action_items": [
+        "Send revised quote with July start date",
+        "Take revised quote to finance"
+      ],
+      "executive_summary": "The sales rep addressed the customer's price concern by highlighting added support and features, and proposed a July start to align with the customer's budget cycle. The customer agreed to consider a revised quote for finance approval.",
+      "errors": []
+    },
+    "cancellation-request": {
+      "conversation_type": "complaint",
+      "overall_sentiment": "negative",
+      "primary_intent": "cancellation",
+      "purchase_intent": null,
+      "objection_categories": [
+        "contract",
+        "price"
+      ],
+      "competitors": [],
+      "action_items": [
+        "Process the cancellation for the account on the 31st and email a confirmation to the customer"
+      ],
+      "executive_summary": "The customer requested cancellation of their account due to cost concerns and a new contract with a competitor. The sales representative offered a discounted plan but the customer insisted on cancellation, which will be processed for the end of the month.",
+      "errors": []
+    }
+  }
+}

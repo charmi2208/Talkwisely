@@ -7,7 +7,13 @@ Every agent reads from it and writes back its results.
 Using TypedDict ensures type safety while being compatible with LangGraph.
 """
 
-from typing import Any, TypedDict
+import operator
+from typing import Annotated, Any, TypedDict
+
+
+def _latest(_old: str, new: str) -> str:
+    """Reducer for fields several parallel nodes write: keep the most recent value."""
+    return new
 
 
 class TranscriptSegmentData(TypedDict):
@@ -117,7 +123,9 @@ class ConversationState(TypedDict):
     generated_email: dict | None
 
     # ---- Processing ----
-    current_step: str
-    steps_completed: list[str]
-    errors: list[str]   # Accumulated errors (don't stop pipeline)
+    # The eight analysis nodes run in one LangGraph superstep, so every field they
+    # all write needs a reducer; otherwise LangGraph rejects the concurrent update.
+    current_step: Annotated[str, _latest]
+    steps_completed: Annotated[list[str], operator.add]
+    errors: Annotated[list[str], operator.add]   # Accumulated errors (don't stop pipeline)
     status: str         # processing | completed | failed

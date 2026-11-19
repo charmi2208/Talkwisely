@@ -33,7 +33,6 @@ from app.db.models import (
     Role, SalesInsight, SentimentResult, Speaker, Summary,
     TranscriptSegment, User, UserRole
 )
-from app.db.session import Base
 
 
 # ---------------------------------------------------------------------------
@@ -126,10 +125,11 @@ SAMPLE_CONVERSATIONS = [
 
 def seed_database() -> None:
     """Main seed function — creates all demo data."""
-    engine = create_engine(settings.database_sync_url, echo=False)
+    # Create or upgrade the schema the same way start.py does
+    from app.db.migrate import upgrade_database
 
-    # Create all tables
-    Base.metadata.create_all(engine)
+    upgrade_database(settings.database_sync_url)
+    engine = create_engine(settings.database_sync_url, echo=False)
 
     SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
@@ -212,6 +212,7 @@ def seed_database() -> None:
         db.flush()
         admin_user = demo_users["admin@demo.talkwiseai.com"]
         agent_user = demo_users["agent@demo.talkwiseai.com"]
+        agent2_user = demo_users["agent2@demo.talkwiseai.com"]
 
         # ---- Mock Integration Setup ----
         for int_type, provider in [("crm", "mock"), ("calendar", "mock"), ("email", "mock"), ("talkwisely", "mock")]:
@@ -227,7 +228,7 @@ def seed_database() -> None:
                     provider=provider,
                     is_enabled=True,
                     is_connected=True,
-                    config={"note": "Mock integration for demo"},
+                    config={},  # registry defaults fill in on first read
                     last_synced_at=datetime.utcnow(),
                 ))
 
@@ -249,7 +250,8 @@ def seed_database() -> None:
             conv = Conversation(
                 id=conv_id,
                 organization_id=demo_org.id,
-                created_by=agent_user.id,
+                # Split calls between the two agents so team analytics have more than one person
+                created_by=(agent2_user if i % 3 == 2 else agent_user).id,
                 title=sample["title"],
                 conversation_type=sample["type"],
                 status="completed",

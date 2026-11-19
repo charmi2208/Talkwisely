@@ -1,0 +1,72 @@
+# TalkWiseAI: PostgreSQL + API + web app.
+#
+#   docker compose up --build
+#   open http://localhost:3000   (API docs: http://localhost:8000/api/docs)
+#
+# AI providers default to mock. For real AI, put your keys in backend/.env.local
+# (see backend/.env.local.example); it is loaded below when present.
+#
+# For Celery workers, Redis and a shared Chroma server, add the override file:
+#   docker compose -f docker-compose.yml -f docker-compose.celery.yml up --build
+
+name: talkwiseai
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: talkwise
+      POSTGRES_PASSWORD: talkwise
+      POSTGRES_DB: talkwiseai
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U talkwise -d talkwiseai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file:
+      - path: ./backend/.env.local
+        required: false
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://talkwise:talkwise@postgres:5432/talkwiseai
+      DATABASE_SYNC_URL: postgresql://talkwise:talkwise@postgres:5432/talkwiseai
+      FRONTEND_URL: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      STORAGE_LOCAL_PATH: /app/storage
+      CHROMA_PERSIST_DIR: /app/vector_store
+      TASK_QUEUE: background
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend-storage:/app/storage
+      - backend-vectors:/app/vector_store
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  backend-storage:
+  backend-vectors:

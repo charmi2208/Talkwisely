@@ -3,13 +3,14 @@
 TalkWiseAI Backend Development Server Startup Script.
 
 Runs:
-1. Database table creation
+1. Alembic migrations (creates or upgrades the schema)
 2. Database seed (demo data)
-3. FastAPI server with hot reload
+3. Search index backfill
+4. FastAPI server with hot reload
 
 Prerequisites:
-- PostgreSQL running with database 'talkwiseai'
-- Redis running
+- The database in DATABASE_SYNC_URL (SQLite works out of the box; PostgreSQL must be running)
+- Redis only if TASK_QUEUE=celery
 - Python virtual environment activated
 """
 
@@ -24,24 +25,16 @@ def main():
     backend_dir = os.path.dirname(os.path.abspath(__file__))
     sys.path.insert(0, backend_dir)
 
-    # Step 1: Create database tables
-    print("📦 Creating database tables...")
+    # Step 1: Create or upgrade the schema with Alembic migrations
+    print("📦 Migrating database schema...")
     try:
-        from sqlalchemy import create_engine
-        from app.core.config import settings
-        from app.db.session import Base
+        from app.db.migrate import upgrade_database
 
-        # Import all models to ensure they're registered
-        import app.db.models  # noqa
-
-        engine = create_engine(settings.database_sync_url)
-        Base.metadata.create_all(engine)
-        engine.dispose()
-        print("   ✅ Database tables ready\n")
+        upgrade_database()
+        print("   ✅ Database schema up to date\n")
     except Exception as e:
-        print(f"   ⚠️  Database setup failed: {e}")
-        print("   Make sure PostgreSQL is running and the database exists.")
-        print("   Create with: createdb talkwiseai\n")
+        print(f"   ⚠️  Database migration failed: {e}")
+        print("   Check DATABASE_SYNC_URL, and that PostgreSQL is running if you use it.\n")
 
     # Step 2: Run seed
     print("🌱 Seeding demo data...")

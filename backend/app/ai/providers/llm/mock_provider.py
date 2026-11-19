@@ -8,7 +8,6 @@ When a real key is available, set LLM_PROVIDER=openai in .env.
 """
 
 import json
-import random
 from datetime import datetime
 
 from app.ai.providers.base import LLMMessage, LLMProvider, LLMResponse
@@ -61,10 +60,37 @@ class MockLLMProvider(LLMProvider):
         messages: list[LLMMessage],
         temperature: float | None = None,
         max_tokens: int | None = None,
+        task: str | None = None,
     ) -> dict:
-        """Return a mock JSON response parsed from mock text."""
+        """Return the canned JSON for the calling agent.
+
+        Pipeline agents pass ``task``; routing on it is exact. Prompt keywords are only a
+        fallback, because prompts mention each other's fields (e.g. "purchase_intent" in the
+        sales prompt or "objection_handling_score" in the QA prompt) and would match the
+        wrong canned response.
+        """
+        generator = self._TASK_GENERATORS.get(task or "")
+        if generator:
+            return getattr(self, generator)()
         system_msg = next((m.content for m in messages if m.role == "system"), "")
         return self._generate_mock_json(system_msg)
+
+    _TASK_GENERATORS: dict[str, str] = {
+        "classification": "_mock_classification",
+        "summarization": "_mock_summary",
+        "action_items": "_mock_action_items",
+        "sentiment": "_mock_sentiment",
+        "intent": "_mock_intent",
+        "pain_points": "_mock_pain_points",
+        "sales_intelligence": "_mock_sales_insight",
+        "objections": "_mock_objections",
+        "entities": "_mock_entities",
+        "meeting_minutes": "_mock_meeting_minutes",
+        "recommendations": "_mock_recommendations",
+        "crm_update": "_mock_crm_update",
+        "agent_score": "_mock_agent_score",
+        "email": "_mock_email",
+    }
 
     def _generate_mock_response(self, system_prompt: str) -> str:
         """Choose appropriate mock response based on system prompt keywords."""
@@ -121,7 +147,9 @@ class MockLLMProvider(LLMProvider):
 
     def _mock_classification(self) -> dict:
         return {
-            "conversation_type": random.choice(["sales", "customer_support", "product_demo", "follow_up"]),
+            # The mock transcript is always the same sales call, so classify it as one.
+            # (A random type used to skip the sales agent for "customer_support".)
+            "conversation_type": "sales",
             "primary_purpose": "Enterprise software sales inquiry with pricing discussion",
             "participants": ["Sales Representative", "Customer (IT Director)"],
             "business_context": "B2B SaaS enterprise sales",
@@ -440,7 +468,7 @@ class MockLLMProvider(LLMProvider):
                 "deal_size_estimate": {"from": None, "to": "$8,000–$12,000/month"},
                 "next_action": {"from": None, "to": "Technical Demo"},
                 "next_action_date": {"from": None, "to": "Thursday"},
-                "notes": "IT Director confirmed 200-seat deployment interest. High buying intent. Demo scheduled.",
+                "notes": {"from": None, "to": "IT Director confirmed 200-seat deployment interest. High buying intent. Demo scheduled."},
                 "lead_score": {"from": None, "to": 82},
             },
             "reasoning": "Customer demonstrated strong purchase intent, confirmed budget authority, and committed to demo.",

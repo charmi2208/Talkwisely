@@ -1,0 +1,43 @@
+# Runtime dependencies for the TalkWiseAI API and worker (tested versions).
+# Install: pip install -r requirements.txt   (dev/test extras: requirements-dev.txt)
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+python-multipart==0.0.32
+pydantic==2.13.5
+pydantic-settings==2.15.0
+email-validator==2.3.0
+
+# Database
+SQLAlchemy==2.0.54
+alembic==1.20.0
+aiosqlite==0.22.1
+greenlet==3.5.6
+asyncpg==0.31.0
+psycopg2-binary==2.9.13
+
+# Auth
+python-jose[cryptography]==3.5.0
+passlib==1.7.4
+bcrypt==5.0.0
+
+# AI pipeline, providers and search
+langgraph==1.2.23
+openai==3.14.1
+tenacity==9.1.4
+chromadb==1.5.9
+
+# Background jobs
+celery==5.6.3
+redis==8.1.0
+
+# Files, documents and reports
+aiofiles==25.1.0
+pypdf==6.19.0
+python-docx==1.2.0
+fpdf2==2.9.0
+
+# Utilities
+httpx==0.28.1
+structlog==26.1.0
+rich==15.0.0
+python-slugify==9.0.0

@@ -23,9 +23,16 @@ class CalendarProvider(ABC):
         """Schedule a new calendar event."""
         ...
 
+    async def health_check(self) -> dict[str, Any]:
+        """Check the adapter can reach its service. Returns {"ok": bool, "message": str}."""
+        return {"ok": False, "message": "Health check not implemented for this adapter."}
+
 
 class MockCalendarProvider(CalendarProvider):
     """Mock Calendar Provider for local demo."""
+
+    async def health_check(self) -> dict[str, Any]:
+        return {"ok": True, "message": "Mock calendar adapter responded. No calendar was contacted."}
 
     async def schedule_event(
         self,

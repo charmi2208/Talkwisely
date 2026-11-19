@@ -12,7 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import Field, BaseModel, EmailStr
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
@@ -169,7 +169,7 @@ async def login(
     import uuid
 
     # Find user by email
-    result = await db.execute(select(User).where(User.email == body.email))
+    result = await db.execute(select(User).where(func.lower(User.email) == body.email.lower()))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(body.password, user.hashed_password):
@@ -277,3 +277,78 @@ async def get_me(
         is_active=user.is_active,
         created_at=user.created_at,
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Forgot / reset password
+# ---------------------------------------------------------------------------
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8)
+
+
+FORGOT_PASSWORD_MESSAGE = "If an account exists for that email, a password reset link has been sent."
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """Email a password reset link valid for 30 minutes.
+
+    The response is the same whether or not the account exists, so it can't be used to
+    discover registered emails. With the mock email provider in development, nothing is
+    delivered, so the link is returned as ``dev_reset_url`` to keep the flow testable.
+    """
+    from app.core.config import settings
+    from app.core.security import create_password_reset_token
+    from app.integrations.email_provider.email_adapter import MockEmailProvider
+
+    user = (await db.execute(
+        select(User).where(func.lower(User.email) == body.email.lower(), User.is_active.is_(True))
+    )).scalar_one_or_none()
+    if not user:
+        return {"message": FORGOT_PASSWORD_MESSAGE}
+
+    token = create_password_reset_token(user.id, user.hashed_password)
+    reset_url = f"{settings.frontend_url.rstrip('/')}/reset-password?token={token}"
+    await MockEmailProvider().send_email(
+        recipient_email=user.email,
+        subject="Reset your TalkWiseAI password",
+        body=f"Use this link within 30 minutes to choose a new password:\n\n{reset_url}",
+        require_approval=False,  # account email, not an AI-drafted message
+    )
+    db.add(AuditLog(organization_id=user.organization_id, user_id=user.id, action="password_reset_requested"))
+    await db.commit()
+    logger.info("Password reset requested", user_id=user.id)
+
+    response = {"message": FORGOT_PASSWORD_MESSAGE}
+    if settings.is_development and settings.email_provider == "mock":
+        response["dev_reset_url"] = reset_url
+    return response
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """Set a new password using a token from the forgot-password email."""
+    from jose import JWTError
+
+    from app.core.security import decode_password_reset_token, reset_token_matches
+
+    invalid = HTTPException(status_code=400, detail="This reset link is invalid or has expired. Request a new one.")
+    try:
+        payload = decode_password_reset_token(body.token)
+    except (JWTError, ValueError):
+        raise invalid
+
+    user = await db.get(User, payload.get("sub"))
+    if not user or not user.is_active or not reset_token_matches(payload, user.hashed_password):
+        raise invalid
+
+    user.hashed_password = hash_password(body.new_password)
+    db.add(AuditLog(organization_id=user.organization_id, user_id=user.id, action="password_reset"))
+    await db.commit()

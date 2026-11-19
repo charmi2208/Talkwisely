@@ -1,9 +1,12 @@
 """
 Knowledge Base API Router.
 
-POST   /api/v1/knowledge-base/upload   — Upload company PDF/DOCX/TXT knowledge document
-GET    /api/v1/knowledge-base          — List uploaded knowledge documents
-DELETE /api/v1/knowledge-base/{id}     — Delete document and purge vector embeddings
+POST   /api/v1/knowledge-base/upload   — Upload a PDF/DOCX/TXT/MD document (admin)
+GET    /api/v1/knowledge-base          — List uploaded knowledge documents (everyone)
+DELETE /api/v1/knowledge-base/{id}     — Delete a document and its embeddings (admin)
+
+Everyone in the organization can ask the AI Copilot about these documents; only admins
+manage them (docs/SPEC.md §5).
 """
 
 import io
@@ -19,8 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.rag.vector_store import vector_store
 from app.core.config import settings
-from app.core.dependencies import get_current_user, get_db
-from app.db.models import KnowledgeChunk, KnowledgeDocument
+from app.core.dependencies import get_current_user, get_db, require_roles
+from app.db.models import AuditLog, KnowledgeChunk, KnowledgeDocument
 
 router = APIRouter(prefix="/knowledge-base", tags=["Knowledge Base"])
 
@@ -46,18 +49,6 @@ def _extract_text(content: bytes, ext: str) -> str:
 def _chunk_text(text: str) -> list[str]:
     step = CHUNK_SIZE - CHUNK_OVERLAP
     return [text[i:i + CHUNK_SIZE] for i in range(0, len(text), step) if text[i:i + CHUNK_SIZE].strip()]
-
-
-async def _categories_for(db: AsyncSession, doc_ids: list[str]) -> dict[str, str]:
-    """Category lives in the first chunk's metadata (documents have no category column)."""
-    if not doc_ids:
-        return {}
-    res = await db.execute(
-        select(KnowledgeChunk.document_id, KnowledgeChunk.extra_metadata).where(
-            KnowledgeChunk.document_id.in_(doc_ids), KnowledgeChunk.chunk_index == 0
-        )
-    )
-    return {doc_id: (meta or {}).get("category", "general") for doc_id, meta in res.all()}
 
 
 class KnowledgeDocResponse(BaseModel):
@@ -86,7 +77,6 @@ async def list_knowledge_documents(
         .order_by(KnowledgeDocument.created_at.desc())
     )
     docs = res.scalars().all()
-    categories = await _categories_for(db, [d.id for d in docs])
 
     return [
         KnowledgeDocResponse(
@@ -95,7 +85,7 @@ async def list_knowledge_documents(
             file_name=d.file_name,
             file_type=d.file_type,
             file_size_bytes=d.file_size_bytes or 0,
-            category=categories.get(d.id, "general"),
+            category=d.category or "general",
             chunk_count=d.chunk_count,
             created_at=d.created_at.isoformat(),
         )
@@ -108,10 +98,10 @@ async def upload_knowledge_document(
     file: UploadFile = File(...),
     title: str = Form(...),
     category: Optional[str] = Form("general"),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_roles("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Upload a company knowledge document (PDF/DOCX/TXT) and index into Vector DB."""
+    """Upload a company knowledge document (PDF/DOCX/TXT/MD) and index it for search."""
     content_bytes = await file.read()
     file_size = len(content_bytes)
 
@@ -137,7 +127,7 @@ async def upload_knowledge_document(
         )
 
     doc_id = str(uuid.uuid4())
-    category = category or "general"
+    category = (category or "general").strip()[:100] or "general"
     save_dir = os.path.join(settings.storage_local_path, "kb", current_user.organization_id)
     os.makedirs(save_dir, exist_ok=True)
     file_path = os.path.join(save_dir, f"{doc_id}{ext}")
@@ -154,10 +144,19 @@ async def upload_knowledge_document(
         file_path=file_path,
         file_type=ext.replace(".", ""),
         file_size_bytes=file_size,
+        category=category,
         status="indexed",
         chunk_count=len(chunks),
     )
     db.add(db_doc)
+    db.add(AuditLog(
+        organization_id=current_user.organization_id,
+        user_id=current_user.id,
+        action="knowledge_upload",
+        resource_type="knowledge_document",
+        resource_id=doc_id,
+        details={"title": title.strip(), "chunks": len(chunks)},
+    ))
 
     chunk_ids = [f"{doc_id}_chunk_{idx}" for idx in range(len(chunks))]
     metadata = {
@@ -208,7 +207,7 @@ async def upload_knowledge_document(
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_knowledge_document(
     document_id: str,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_roles("admin")),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete knowledge document and purge its vector embeddings."""
@@ -231,4 +230,12 @@ async def delete_knowledge_document(
     await vector_store.delete_by_document(document_id)
     await db.execute(delete(KnowledgeChunk).where(KnowledgeChunk.document_id == document_id))
     await db.delete(doc)
+    db.add(AuditLog(
+        organization_id=current_user.organization_id,
+        user_id=current_user.id,
+        action="knowledge_delete",
+        resource_type="knowledge_document",
+        resource_id=document_id,
+        details={"title": doc.title},
+    ))
     await db.commit()

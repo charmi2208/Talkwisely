@@ -6,6 +6,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Eye, EyeOff, Brain, ArrowRight, AlertCircle } from "lucide-react";
 import { authApi } from "@/lib/api/auth";
+import { apiErrorMessage } from "@/lib/api/errors";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { AuthBrandPanel } from "@/components/auth/AuthBrandPanel";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -41,8 +42,10 @@ export default function LoginPage() {
       );
       toast.success(`Welcome back, ${profile.full_name.split(" ")[0]}!`);
       router.push("/dashboard");
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail || "Login failed. Please check your credentials.";
+    } catch (err) {
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("refresh_token");
+      const msg = apiErrorMessage(err, "Login failed. Please check your credentials.");
       setError(msg);
       toast.error(msg);
     } finally {
@@ -126,7 +129,12 @@ export default function LoginPage() {
               </Field>
 
               <Field>
-                <FieldLabel htmlFor="password">Password</FieldLabel>
+                <div className="flex items-center justify-between">
+                  <FieldLabel htmlFor="password">Password</FieldLabel>
+                  <Button variant="link" size="sm" asChild className="h-auto p-0 text-xs">
+                    <Link href="/forgot-password">Forgot password?</Link>
+                  </Button>
+                </div>
                 <InputGroup>
                   <InputGroupInput
                     id="password"
@@ -163,7 +171,7 @@ export default function LoginPage() {
 
           <div className="mt-6 text-center">
             <p className="text-muted-foreground text-sm">
-              Don't have an account?{" "}
+              Don&apos;t have an account?{" "}
               <Button variant="link" asChild className="h-auto p-0 font-semibold">
                 <Link href="/register">Create one</Link>
               </Button>

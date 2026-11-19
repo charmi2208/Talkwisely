@@ -66,7 +66,7 @@ class EmailGenerationAgent:
                                         email_type, tone, recipient_name, sender_name)
 
         try:
-            result = await self.llm.complete_json(messages)
+            result = await self.llm.complete_json(messages, task="email")
             return {
                 "subject": result.get("subject", f"Follow-up: {conversation_title}"),
                 "body": result.get("body", f"Thank you for our recent call regarding {conversation_title}."),

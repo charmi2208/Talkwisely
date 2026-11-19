@@ -20,7 +20,7 @@ import {
   UserCircle,
   PhoneCall,
 } from "lucide-react";
-import { useAuthStore } from "@/lib/stores/authStore";
+import { type Role, useAuthStore, useRole } from "@/lib/stores/authStore";
 import { toast } from "sonner";
 import { ModeToggle } from "@/components/mode-toggle";
 import { NotificationsMenu } from "@/components/layout/NotificationsMenu";
@@ -43,7 +43,14 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 
-const navItems = [
+interface NavItem {
+  href: string;
+  icon: React.ElementType;
+  label: string;
+  roles?: Role[]; // omitted: everyone
+}
+
+const navItems: { section: string; items: NavItem[] }[] = [
   {
     section: "Overview",
     items: [
@@ -72,7 +79,7 @@ const navItems = [
     items: [
       { href: "/analytics", icon: BarChart3, label: "Analytics" },
       { href: "/reports", icon: FileText, label: "Reports" },
-      { href: "/team", icon: Users, label: "Team" },
+      { href: "/team", icon: Users, label: "Team", roles: ["admin", "manager"] },
     ],
   },
   {
@@ -89,6 +96,7 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, clearAuth } = useAuthStore();
+  const role = useRole();
 
   const handleLogout = () => {
     clearAuth();
@@ -126,7 +134,7 @@ export function AppSidebar() {
             <SidebarGroupLabel>{section.section}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {section.items.map((item) => (
+                {section.items.filter((item) => !item.roles || item.roles.includes(role)).map((item) => (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton asChild isActive={isActive(item.href)} tooltip={item.label}>
                       <Link href={item.href}>
@@ -153,7 +161,7 @@ export function AppSidebar() {
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{user.full_name}</span>
-                  <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+                  <span className="truncate text-xs text-muted-foreground"><span className="capitalize">{role}</span> · {user.email}</span>
                 </div>
               </SidebarMenuButton>
             </SidebarMenuItem>

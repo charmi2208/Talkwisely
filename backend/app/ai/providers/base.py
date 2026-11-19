@@ -49,8 +49,13 @@ class LLMProvider(ABC):
         messages: list[LLMMessage],
         temperature: float | None = None,
         max_tokens: int | None = None,
+        task: str | None = None,
     ) -> dict:
-        """Send a chat completion request expecting JSON output."""
+        """Send a chat completion request expecting JSON output.
+
+        ``task`` names the agent making the call (e.g. "summarization"). Real providers
+        only use it for logging; the mock provider uses it to pick its canned response.
+        """
         ...
 
     @property

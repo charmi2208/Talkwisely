@@ -27,9 +27,23 @@ class CallProviderAdapter(ABC):
         """Fetch metadata (caller_id, duration, agent_id, timestamp)."""
         ...
 
+    async def health_check(self) -> dict[str, Any]:
+        """Check the adapter can reach its service. Returns {"ok": bool, "message": str}."""
+        return {"ok": False, "message": "Health check not implemented for this adapter."}
+
 
 class TalkWiselyCloudPBXAdapter(CallProviderAdapter):
-    """TalkWisely Cloud PBX Call Provider implementation."""
+    """Mock TalkWisely Cloud PBX adapter.
+
+    The real TalkWisely API isn't public, so this returns two sample call records and
+    placeholder recording bytes. Imported calls can only be analyzed with the mock
+    speech-to-text provider, which ignores the audio.
+    """
+
+    is_mock = True
+
+    async def health_check(self) -> dict[str, Any]:
+        return {"ok": True, "message": "Mock PBX adapter responded with sample calls. No PBX was contacted."}
 
     async def fetch_calls(self, limit: int = 10) -> list[dict[str, Any]]:
         """Return mock/simulated call records from TalkWisely PBX."""

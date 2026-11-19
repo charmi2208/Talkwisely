@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
 
+    # ---- Background jobs ----
+    # background = run the pipeline in the API process (FastAPI BackgroundTasks; no Redis needed)
+    # celery     = enqueue on the Celery broker; run a worker with
+    #              `celery -A app.workers.celery_app worker -l info`
+    task_queue: Literal["background", "celery"] = "background"
+    # How often the TalkWisely PBX auto-sync checks for new calls (users opt in under Settings)
+    pbx_auto_sync_interval_minutes: int = 15
+
     # ---- JWT ----
     jwt_secret_key: str = "dev-jwt-secret-change-in-production"
     jwt_algorithm: str = "HS256"
@@ -90,6 +98,9 @@ class Settings(BaseSettings):
     # ---- Vector DB ----
     vector_db_provider: str = "chromadb"
     chroma_persist_dir: str = "./vector_store"
+    # Set CHROMA_HOST to use a Chroma server instead of the embedded on-disk store
+    chroma_host: str = ""
+    chroma_port: int = 8000
 
     # ---- CRM Integration ----
     crm_provider: Literal["mock", "hubspot", "salesforce", "zoho"] = "mock"
@@ -126,7 +137,7 @@ class Settings(BaseSettings):
 
     # ---- Rate Limiting ----
     rate_limit_enabled: bool = True
-    rate_limit_requests: int = 100
+    rate_limit_requests: int = 300  # a dashboard load makes ~10 API calls
     rate_limit_period_seconds: int = 60
 
     # ---- Demo Mode ----

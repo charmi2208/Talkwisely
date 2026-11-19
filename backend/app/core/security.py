@@ -84,3 +84,42 @@ def decode_refresh_token(token: str) -> dict[str, Any]:
     if payload.get("type") != "refresh":
         raise ValueError("Invalid token type")
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Password reset tokens
+# ---------------------------------------------------------------------------
+
+PASSWORD_RESET_MINUTES = 30
+
+
+def _password_fingerprint(hashed_password: str) -> str:
+    """Short digest of the current hash: a reset token stops working once the password changes."""
+    import hashlib
+
+    return hashlib.sha256(hashed_password.encode()).hexdigest()[:16]
+
+
+def create_password_reset_token(user_id: str, hashed_password: str) -> str:
+    """Single-use (per password) token for the forgot-password flow."""
+    now = datetime.now(timezone.utc)
+    payload: dict[str, Any] = {
+        "sub": user_id,
+        "type": "password_reset",
+        "pwd": _password_fingerprint(hashed_password),
+        "iat": now,
+        "exp": now + timedelta(minutes=PASSWORD_RESET_MINUTES),
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def decode_password_reset_token(token: str) -> dict[str, Any]:
+    """Validate a reset token's signature, expiry and type. Raises JWTError or ValueError."""
+    payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+    if payload.get("type") != "password_reset":
+        raise ValueError("Invalid token type")
+    return payload
+
+
+def reset_token_matches(payload: dict[str, Any], hashed_password: str) -> bool:
+    return payload.get("pwd") == _password_fingerprint(hashed_password)
