@@ -37,7 +37,7 @@ Open a conversation to see:
 
 ## Meetings
 
-Every conversation with generated minutes. Switch to **Meetings only** to hide calls. Click a card to read the minutes, download them as Markdown, copy them, or open the conversation.
+Every conversation with generated minutes. Switch to **Meetings only** to hide calls. Managers and admins can **Import recordings** from the connected meeting platform (currently a mock with two sample meetings). Click a card to read the minutes, download them as Markdown, copy them, or open the conversation.
 
 ## Sales Intelligence and Leads
 
@@ -51,7 +51,9 @@ Tasks from analyzed conversations plus your own. Filter by status, tick a task t
 
 ## AI Copilot
 
-Ask questions across your conversations and the knowledge base, for example "Which deals mentioned a competitor this month?" or "What do customers say about pricing?". Answers cite their sources; if the answer isn't in your data, the Copilot says so.
+Ask questions across your conversations and the knowledge base, for example "What do customers say about pricing?". Answers cite their sources; if the answer isn't in your data, the Copilot says so.
+
+Questions about numbers get exact answers with a table computed from your data, for example "How many high-intent leads did we have this month?", "What percentage of calls were positive?", "Which sales representative had the highest average score?", "Which customers mentioned competitors?" or "What are the top three objections in sales calls?". You can name a period (today, this week, last month, the last 14 days, this year) or a conversation type (sales calls, support calls, meetings).
 
 ## Knowledge Base
 
@@ -71,7 +73,7 @@ Managers see the team with each person's role, conversation count and last sign-
 
 ## Integrations
 
-Status of the TalkWisely PBX, CRM, calendar and email connections. They currently use mock adapters, which the page labels clearly. Managers and admins can **Test connection** and **Sync TalkWisely Calls**; admins can **Configure** each integration (turn it on or off and edit its settings).
+Status of the TalkWisely PBX, meeting platform (Zoom, Google Meet, Teams), CRM, calendar and email connections. They currently use mock adapters, which the page labels clearly. Managers and admins can **Test connection** and **Sync TalkWisely Calls**; admins can **Configure** each integration (turn it on or off and edit its settings).
 
 ## Settings and Profile
 

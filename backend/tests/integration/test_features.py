@@ -130,7 +130,7 @@ async def test_meetings_list_and_minutes(client, manager):
 
 async def test_integrations_are_honest_about_mocks(client, admin):
     integrations = (await client.get("/api/v1/integrations", headers=admin)).json()
-    assert {i["key"] for i in integrations} == {"talkwisely", "crm", "calendar", "email"}
+    assert {i["key"] for i in integrations} == {"talkwisely", "meetings", "crm", "calendar", "email"}
     assert all(i["is_mock"] for i in integrations)
     test = (await client.post("/api/v1/integrations/crm/test", headers=admin)).json()
     assert test["ok"] and "mock" in test["message"].lower()
@@ -227,3 +227,48 @@ async def test_audit_log_records_actions(client, admin):
     logs = (await client.get("/api/v1/system/audit-logs", headers=admin, params={"limit": 200})).json()
     actions = {log["action"] for log in logs}
     assert {"login", "upload"} <= actions
+
+
+async def test_analytics_are_cached_and_invalidated_by_new_data(client, agent2, monkeypatch):
+    import app.api.v1.analytics as analytics_module
+
+    computed = []
+    original = analytics_module.get_or_compute
+
+    async def spy(namespace, org, scope, params, compute, ttl=None):
+        async def counting():
+            computed.append(namespace)
+            return await compute()
+        return await original(namespace, org, scope, params, counting, ttl)
+
+    monkeypatch.setattr(analytics_module, "get_or_compute", spy)
+    params = {"days": 365}
+    before = (await client.get("/api/v1/analytics/overview", headers=agent2, params=params)).json()
+    again = (await client.get("/api/v1/analytics/overview", headers=agent2, params=params)).json()
+    assert again == before
+    assert computed.count("analytics:overview") == 1  # second request was a cache hit
+
+    conversation_id = await upload(client, agent2, "Cache invalidation check")
+    after = (await client.get("/api/v1/analytics/overview", headers=agent2, params=params)).json()
+    assert after["total_conversations"] == before["total_conversations"] + 1
+    await client.delete(f"/api/v1/conversations/{conversation_id}", headers=agent2)
+    final = (await client.get("/api/v1/analytics/overview", headers=agent2, params=params)).json()
+    assert final["total_conversations"] == before["total_conversations"]
+
+
+async def test_meeting_recordings_import_once(client, manager, agent):
+    first = await client.post("/api/v1/integrations/meetings/sync", headers=manager)
+    assert first.status_code == 200, first.text
+    assert first.json()["imported"] == 2
+    again = (await client.post("/api/v1/integrations/meetings/sync", headers=manager)).json()
+    assert again["imported"] == 0 and again["skipped"] == 2
+
+    meetings = (await client.get("/api/v1/conversations", headers=manager, params={"search": "meeting:"})).json()["items"]
+    titles = {m["title"] for m in meetings}
+    assert "Zoom meeting: Quarterly business review with Northwind" in titles
+    assert "Teams meeting: Weekly support stand-up" in titles
+
+    assert (await client.post("/api/v1/integrations/meetings/sync", headers=agent)).status_code == 403
+    assert (await client.post("/api/v1/integrations/crm/sync", headers=manager)).status_code == 400
+    test = (await client.post("/api/v1/integrations/meetings/test", headers=manager)).json()
+    assert test["ok"]

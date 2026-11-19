@@ -64,6 +64,20 @@ INTEGRATIONS: dict[str, IntegrationSpec] = {
             ConfigField("import_limit", "Calls per sync", "number", 5, "Most calls imported in one sync", 1, 50),
         ],
     ),
+    "meetings": IntegrationSpec(
+        key="meetings",
+        name="Meeting platforms",
+        description="Imports recorded meetings from Zoom, Google Meet or Microsoft Teams for analysis.",
+        providers=[
+            ProviderOption("mock", "Mock meetings (sample recordings)", True, "Returns two sample meeting recordings"),
+            ProviderOption("zoom", "Zoom", False, _NOT_BUILT),
+            ProviderOption("google_meet", "Google Meet", False, _NOT_BUILT),
+            ProviderOption("teams", "Microsoft Teams", False, _NOT_BUILT),
+        ],
+        config_fields=[
+            ConfigField("import_limit", "Recordings per sync", "number", 5, "Most recordings imported in one sync", 1, 50),
+        ],
+    ),
     "crm": IntegrationSpec(
         key="crm",
         name="CRM",
@@ -166,10 +180,12 @@ async def check_connection(key: str, provider: str) -> dict[str, Any]:
     from app.integrations.calendar.calendar_adapter import MockCalendarProvider
     from app.integrations.crm.crm_adapter import MockCRMProvider
     from app.integrations.email_provider.email_adapter import MockEmailProvider
+    from app.integrations.meetings.meeting_adapter import MockMeetingAdapter
     from app.integrations.talkwisely.talkwisely_adapter import TalkWiselyCloudPBXAdapter
 
     adapters = {
         "talkwisely": TalkWiselyCloudPBXAdapter,
+        "meetings": MockMeetingAdapter,
         "crm": MockCRMProvider,
         "calendar": MockCalendarProvider,
         "email": MockEmailProvider,

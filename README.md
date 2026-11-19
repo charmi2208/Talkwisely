@@ -19,7 +19,7 @@ Built for the TalkWisely (Ahmedabad) Cloud PBX ecosystem as a 10-credit Semester
 | Speech-to-text | Hosted Whisper (`whisper-large-v3-turbo` on Groq) with ffmpeg preprocessing; local Whisper optional |
 | Semantic search | ChromaDB with local ONNX embeddings (all-MiniLM-L6-v2, no API key) |
 | Database | SQLite for local development and tests; PostgreSQL in Docker and production |
-| Background jobs | In-process by default; Celery and Redis optional |
+| Background jobs and caching | In-process jobs and memory cache by default; Celery and Redis optional |
 | Integrations | Adapter interfaces with mock implementations for TalkWisely PBX, CRM, calendar and email |
 
 ---
@@ -67,7 +67,7 @@ To try the full pipeline with real AI, record the script in [docs/TEST_RECORDING
 ## Features
 
 - **Accounts and roles:** sign up, sign in, forgot and reset password, change password, organization workspaces. Admins manage the team (add members, change roles, deactivate accounts); agents see only their own conversations.
-- **Ingestion:** upload audio or video with live progress, or import calls from the TalkWisely PBX adapter (manual sync or scheduled auto-sync).
+- **Ingestion:** upload audio or video with live progress, import calls from the TalkWisely PBX adapter (manual sync or scheduled auto-sync), or import recordings from meeting platforms.
 - **Transcription:** timestamps, AI speaker-role labelling, editable speaker names and talk-time per speaker.
 - **AI analysis per conversation:**
   - Summary, key topics, decisions and next steps
@@ -76,14 +76,14 @@ To try the full pipeline with real AI, record the script in [docs/TEST_RECORDING
   - Competitors and other entities
   - Action items, meeting minutes, recommendations and an AI quality score for the agent
 - **Human in the loop:** CRM update proposals you review, edit, approve or reject; follow-up email drafts that are never sent automatically.
-- **Search and Copilot:** ask about one conversation or across all of them and the knowledge base, with cited sources.
+- **Search and Copilot:** ask about one conversation or across all of them and the knowledge base, with cited sources. Analytics questions ("What percentage of calls were positive?") get exact numbers from predefined queries.
 - **Work management:** action items with owners, due dates, priorities and overdue tracking; leads and an eight-stage sales pipeline; meetings with downloadable minutes.
 - **Analytics and reports:** dashboard and analytics with date, type and team-member filters and period-over-period changes; executive, conversation, sales, agent performance, sentiment and objection reports, saved and downloadable as PDF, CSV or Markdown.
-- **Operations:** notifications, preferences that change behavior, integration settings, audit log, rate limiting, reprocessing.
+- **Operations:** notifications, preferences that change behavior, integration settings, audit log, rate limiting, caching (in memory or Redis), reprocessing.
 
 ### What is mocked
 
-- The TalkWisely PBX, CRM, calendar and email integrations use mock adapters, because the real APIs aren't available to this project. The Integrations page labels them as mocks.
+- The TalkWisely PBX, meeting platform, CRM, calendar and email integrations use mock adapters, because the real APIs aren't available to this project. The Integrations page labels them as mocks.
 - Without an AI key, mock mode returns the same sample transcript and analysis for every upload.
 
 ---
@@ -141,6 +141,7 @@ Talkwisely/
 npx tsc --noEmit
 npm run lint
 npm run build
+npm run test:e2e                             # browser tests (needs Chrome and backend/venv)
 ```
 
 ---
@@ -171,7 +172,7 @@ npm run build
 - **Demo data:** the seeded conversations share placeholder transcripts, so Copilot answers about them aren't meaningful. Upload real recordings for realistic results.
 - **AI accuracy:** results can contain mistakes (purchase intent was the weakest task in evaluation). Review CRM changes and emails before using them.
 - **Integrations** are mock adapters until real provider APIs are connected.
-- **Scale:** the built-in rate limiter and embedded vector store are per process; run Celery with a Chroma server and a shared rate-limit store for multiple API replicas.
+- **Scale:** for several API replicas, use Celery, a Chroma server and `CACHE_BACKEND=redis` (shared cache and rate limits); the Celery compose override sets all three.
 
 ---
 

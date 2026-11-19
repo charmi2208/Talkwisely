@@ -150,6 +150,15 @@ Settings are read from `backend/.env` (committed placeholders), then `backend/.e
 | `EMBEDDING_PROVIDER` | `mock` | `local` (ONNX), `openai` or `mock`. |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIMENSION` | `text-embedding-3-small` / `1536` | For `openai` embeddings. |
 
+### Caching
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CACHE_BACKEND` | `memory` | `memory` (per process), `redis` (shared; use with Celery or several API replicas, also moves rate limiting to Redis) or `none`. |
+| `CACHE_URL` | empty | Redis URL for the cache; defaults to `REDIS_URL`. |
+| `CACHE_TTL_SECONDS` | `60` | Analytics cache lifetime. Writes invalidate earlier. |
+| `COPILOT_CACHE_TTL_SECONDS` | `600` | How long identical Copilot questions reuse an answer. |
+
 ### Background jobs
 
 | Variable | Default | Purpose |

@@ -726,6 +726,13 @@ async def get_processing_status(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    # Progress written by the worker; the cached copy saves a query on every 2.5 s poll
+    from app.core.cache import get_job_status
+
+    cached_status = await get_job_status(conversation_id)
+    if cached_status and cached_status.get("conversation_status") == conv.status:
+        return {"conversation_id": conversation_id, **cached_status}
+
     # Get latest job
     job_result = await db.execute(
         select(ProcessingJob)

@@ -21,7 +21,7 @@ async def run_pbx_auto_sync_once() -> int:
     """One sync pass. Returns how many calls were imported."""
     from app.db.models import User
     from app.db.session import AsyncSessionLocal
-    from app.services.pbx_import import ImportBlocked, import_pbx_calls
+    from app.services.recording_import import ImportBlocked, import_pbx_calls
 
     imported = 0
     async with AsyncSessionLocal() as db:

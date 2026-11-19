@@ -56,3 +56,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
+
+
+# Cached analytics and answers are invalidated by commits that touch an organization's rows
+from app.core.cache import install_invalidation  # noqa: E402
+
+install_invalidation()

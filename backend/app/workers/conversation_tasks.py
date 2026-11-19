@@ -40,8 +40,10 @@ def _get_sync_db():
 
 
 def _update_job_status(db: Session, job_id: str, status: str, progress: int, step: str = "") -> None:
-    """Update the processing job status in the database."""
-    from app.db.models import ProcessingJob
+    """Update the processing job in the database and the job-status cache the UI polls."""
+    from app.core.cache import set_job_status
+    from app.db.models import Conversation, ProcessingJob
+
     job = db.query(ProcessingJob).filter(ProcessingJob.id == job_id).first()
     if job:
         job.status = status
@@ -50,6 +52,12 @@ def _update_job_status(db: Session, job_id: str, status: str, progress: int, ste
         if status in ("completed", "failed"):
             job.completed_at = datetime.utcnow()
         db.commit()
+        conv_status = db.query(Conversation.status).filter(Conversation.id == job.conversation_id).scalar()
+        set_job_status(job.conversation_id, {
+            "conversation_status": conv_status,
+            "job": {"id": job.id, "status": status, "progress": progress, "current_step": step,
+                    "error_message": job.error_message},
+        })
 
 
 def _update_conversation_status(db: Session, conversation_id: str, status: str, error: str = "") -> None:

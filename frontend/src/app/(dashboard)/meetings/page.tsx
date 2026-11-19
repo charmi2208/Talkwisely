@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { CalendarClock, Copy, Download, ExternalLink, MessageSquare, Search } from "lucide-react";
+import { CalendarClock, Copy, Download, ExternalLink, MessageSquare, RefreshCw, Search } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { apiErrorMessage } from "@/lib/api/errors";
+import { integrationsApi } from "@/lib/api/integrations";
 import { meetingsApi, type MeetingItem, type MeetingMinutes } from "@/lib/api/meetings";
+import { useRole } from "@/lib/stores/authStore";
 import { saveBlob } from "@/lib/download";
 import { formatDate, formatDuration, humanize } from "@/lib/format";
 import { ErrorState, PageLoading } from "@/components/common/ErrorState";
@@ -45,6 +47,8 @@ export default function MeetingsPage() {
   const [selected, setSelected] = useState<MeetingItem | null>(null);
   const [minutes, setMinutes] = useState<MeetingMinutes | null>(null);
   const [minutesLoading, setMinutesLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const canImport = useRole() !== "agent";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,6 +66,18 @@ export default function MeetingsPage() {
     const timer = setTimeout(load, search ? 300 : 0);
     return () => clearTimeout(timer);
   }, [load, search]);
+
+  const importRecordings = async () => {
+    setImporting(true);
+    try {
+      const result = await integrationsApi.sync("meetings");
+      toast.success(`${result.message} Minutes appear here once analysis finishes.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Couldn't import meeting recordings"));
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const openMinutes = async (meeting: MeetingItem) => {
     setSelected(meeting);
@@ -87,10 +103,18 @@ export default function MeetingsPage() {
             <ToggleGroupItem value="all">All conversations with minutes</ToggleGroupItem>
             <ToggleGroupItem value="meetings">Meetings only</ToggleGroupItem>
           </ToggleGroup>
-          <InputGroup className="w-full sm:w-64">
-            <InputGroupAddon><Search /></InputGroupAddon>
-            <InputGroupInput placeholder="Search meetings" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search meetings" />
-          </InputGroup>
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <InputGroup className="w-full sm:w-64">
+              <InputGroupAddon><Search /></InputGroupAddon>
+              <InputGroupInput placeholder="Search meetings" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search meetings" />
+            </InputGroup>
+            {canImport && (
+              <Button variant="outline" size="sm" onClick={importRecordings} disabled={importing}>
+                {importing ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
+                Import recordings
+              </Button>
+            )}
+          </div>
         </div>
 
         {loading && meetings.length === 0 ? (

@@ -17,6 +17,7 @@ GET /api/v1/analytics/agents          — Average QA scores and a per-person lea
 GET /api/v1/analytics/topics          — Most frequent key topics
 """
 
+import functools
 from collections import Counter
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -27,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.action_items import visible_action_items
 from app.core.access import conversation_scope, is_privileged
+from app.core.cache import get_or_compute
 from app.core.dependencies import get_current_user, get_db
 from app.db.models import (
     ActionItem, AgentScore, Conversation, Entity, Objection, SalesInsight, SentimentResult, Summary, User,
@@ -63,6 +65,29 @@ class AnalyticsFilters:
         if self.agent_id and is_privileged(user):
             conds.append(Conversation.created_by == self.agent_id)
         return conds
+
+
+def cached(name: str):
+    """Cache an analytics endpoint per organization, viewer scope and query parameters.
+
+    Agents get their own entry (they only see their own conversations); admins and
+    managers share the organization-wide one. Commits invalidate (see core/cache.py).
+    """
+    def decorate(endpoint):
+        @functools.wraps(endpoint)
+        async def wrapper(*args, **kwargs):
+            user = kwargs["current_user"]
+            filters = kwargs.get("filters")
+            params = {
+                **(vars(filters) if filters is not None else {}),
+                **{k: v for k, v in kwargs.items() if k not in ("current_user", "db", "filters")},
+            }
+            scope = "org" if is_privileged(user) else f"user:{user.id}"
+            return await get_or_compute(
+                f"analytics:{name}", user.organization_id, scope, params, lambda: endpoint(*args, **kwargs)
+            )
+        return wrapper
+    return decorate
 
 
 def _pct_change(current: float, previous: float) -> float | None:
@@ -110,6 +135,7 @@ async def _period_metrics(db: AsyncSession, conds: list) -> dict:
 
 
 @router.get("/overview")
+@cached("overview")
 async def get_dashboard_overview(
     filters: AnalyticsFilters = Depends(),
     current_user=Depends(get_current_user),
@@ -231,6 +257,7 @@ def _day_range(days: int) -> list[str]:
 
 
 @router.get("/conversations")
+@cached("volume")
 async def get_conversation_trends(
     filters: AnalyticsFilters = Depends(),
     current_user=Depends(get_current_user),
@@ -265,6 +292,7 @@ async def get_conversation_trends(
 
 
 @router.get("/sentiment")
+@cached("sentiment")
 async def get_sentiment_trends(
     filters: AnalyticsFilters = Depends(),
     current_user=Depends(get_current_user),
@@ -305,6 +333,7 @@ async def get_sentiment_trends(
 
 
 @router.get("/objections")
+@cached("objections")
 async def get_objection_analysis(
     filters: AnalyticsFilters = Depends(),
     current_user=Depends(get_current_user),
@@ -340,6 +369,7 @@ async def get_objection_analysis(
 
 
 @router.get("/sales")
+@cached("sales")
 async def get_sales_metrics(
     filters: AnalyticsFilters = Depends(),
     current_user=Depends(get_current_user),
@@ -373,6 +403,7 @@ async def get_sales_metrics(
 
 
 @router.get("/agents")
+@cached("agents")
 async def get_agent_performance(
     filters: AnalyticsFilters = Depends(),
     current_user=Depends(get_current_user),
@@ -430,6 +461,7 @@ async def get_agent_performance(
 
 
 @router.get("/topics")
+@cached("topics")
 async def get_topic_frequency(
     filters: AnalyticsFilters = Depends(),
     limit: int = Query(10, ge=1, le=50),

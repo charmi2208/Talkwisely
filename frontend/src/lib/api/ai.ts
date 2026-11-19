@@ -22,11 +22,21 @@ export function citationLabel(c: Citation): string {
   return label;
 }
 
+/** Exact figures from a predefined analytics query (no AI-written numbers). */
+export interface AnalyticsAnswer {
+  tool: string;
+  title: string;
+  period: string;
+  columns: string[];
+  rows: (string | number | null)[][];
+}
+
 export interface CopilotChatResponse {
   answer: string;
   query: string;
   citations: Citation[];
   context_count: number;
+  analytics?: AnalyticsAnswer | null;
 }
 
 export interface GenerateEmailRequest {
@@ -46,7 +56,7 @@ export interface GenerateEmailResponse {
 }
 
 export const aiApi = {
-  chat: async (query: string, conversationId?: string, chatHistory?: any[]) => {
+  chat: async (query: string, conversationId?: string, chatHistory?: { role: string; content: string }[]) => {
     const res = await apiClient.post<CopilotChatResponse>("/ai/copilot/chat", {
       query,
       conversation_id: conversationId,
@@ -61,7 +71,10 @@ export const aiApi = {
   },
 
   naturalLanguageQuery: async (query: string) => {
-    const res = await apiClient.post<any>("/ai/natural-language-query", { query });
+    const res = await apiClient.post<Partial<AnalyticsAnswer> & { query_type: string; answer: string; citations?: Citation[] }>(
+      "/ai/natural-language-query",
+      { query },
+    );
     return res.data;
   },
 };

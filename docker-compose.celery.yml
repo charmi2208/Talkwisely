@@ -2,7 +2,7 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.celery.yml up --build
 #
-# Adds Redis (broker) and a Chroma server. The embedded Chroma store can't be shared
+# Adds Redis (broker, shared cache and rate limits) and a Chroma server. The embedded Chroma store can't be shared
 # safely between processes, so the API and the workers both talk to the server.
 # Keep the chroma image version equal to chromadb in backend/requirements.txt.
 
@@ -28,6 +28,7 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       CHROMA_HOST: chroma
       CHROMA_PORT: "8000"
+      CACHE_BACKEND: redis
     depends_on:
       redis:
         condition: service_healthy
@@ -52,6 +53,7 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/2
       CHROMA_HOST: chroma
       CHROMA_PORT: "8000"
+      CACHE_BACKEND: redis
     volumes:
       - backend-storage:/app/storage   # uploads are read from the same volume the API writes
     depends_on:

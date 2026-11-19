@@ -39,6 +39,7 @@ flowchart LR
 | Search | `backend/app/ai/rag` | Chroma collections per embedding model; transcript windows, summaries and knowledge documents, every query filtered by organization. |
 | Integrations | `backend/app/integrations` | Adapter interfaces plus mock implementations and a registry of per-organization settings (`docs/INTEGRATIONS.md`). |
 | Scheduler | `backend/app/services/scheduler.py` | Runs inside the API process; imports new PBX calls every 15 minutes for organizations that opted in. |
+| Cache | `backend/app/core/cache.py` | Analytics, Copilot answers and job status; in memory or Redis, invalidated by commits. |
 | Database | `backend/app/db` | SQLAlchemy models, Alembic migrations, AI-output sanitizer (`docs/DATABASE.md`). |
 
 ## Processing an upload
@@ -77,7 +78,7 @@ If speech-to-text finds no speech, or a step the rest depend on fails, the job m
 | Sessions | JWT access (60 min) and refresh (7 days) tokens. Deactivated users can't sign in or refresh. |
 | Roles | admin, manager, agent (`core/access.py`, `require_roles`). Admins manage users, integrations and the knowledge base; managers see team analytics and generate reports; agents see only the conversations they uploaded. |
 | Organization isolation | Every query filters by the user's organization; vector searches filter by `organization_id` metadata. |
-| Rate limiting | Per-IP sliding window (`core/rate_limit.py`): 10 per minute on login, register and password reset, a general limit elsewhere. The store is pluggable for Redis. |
+| Rate limiting | Per-IP sliding window (`core/rate_limit.py`): 10 per minute on login, register and password reset, a general limit elsewhere. In memory, or shared in Redis with `CACHE_BACKEND=redis`. CORS preflights don't count, and 429 responses carry CORS headers. |
 | Input and file validation | Pydantic request models; upload extension and size checks; uploaded files get random names. |
 | AI output | Validated against per-agent schemas before storage (`ai/schemas/agent_outputs.py`); unknown values stored as null. |
 | Human approval | CRM writes only happen after a person approves a proposal; emails are drafted, never sent automatically. |
@@ -85,6 +86,14 @@ If speech-to-text finds no speech, or a step the rest depend on fails, the job m
 | Errors | Production responses hide internal details; development returns the exception text. |
 | Audit log | Logins, uploads, deletions, reprocessing, AI processing results, CRM approvals and rejections, user and role changes, integration changes, report generation, knowledge-base changes, password events. Admins see it on the Settings page. |
 | Deletion | Deleting a conversation removes the recording, transcript, insights, CRM proposals and its search vectors. |
+
+## Caching
+
+`app/core/cache.py` caches analytics responses (60 s), Copilot answers (10 min) and job progress for the processing-status poll. The backend is `CACHE_BACKEND`: `memory` (per process, default), `redis` (shared by API replicas and Celery workers) or `none`.
+
+Entries are keyed with the organization's current *generation*. A SQLAlchemy hook collects the `organization_id` of every row written in a session and increments those generations after the commit, so any upload, deletion, task change or setting change invalidates the organization's cached results at once, without listing write paths by hand. Agents get their own cache entries because they see different data. Redis failures behave like cache misses.
+
+With `CACHE_BACKEND=redis`, the rate limiter also moves to Redis (a sliding window in a sorted set per client), so limits are shared across replicas.
 
 ## Background jobs
 

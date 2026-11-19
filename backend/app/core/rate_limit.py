@@ -4,11 +4,13 @@ Request rate limiting.
 A sliding-window limiter keyed by client IP. Authentication endpoints get a much lower
 limit than the rest of the API to slow down password guessing.
 
-The in-memory store works for a single API process. ``RateLimitStore`` is the seam for a
-shared store (e.g. Redis) when the API runs as several replicas.
+The in-memory store works for a single API process. With ``CACHE_BACKEND=redis`` the
+limiter uses Redis instead, so every API replica shares the same counts.
 """
 
+import asyncio
 import time
+import uuid
 from collections import defaultdict, deque
 from typing import Protocol
 
@@ -44,7 +46,44 @@ class MemoryRateLimitStore:
         self._hits.clear()
 
 
-store: RateLimitStore = MemoryRateLimitStore()
+class RedisRateLimitStore:
+    """Sliding window in a Redis sorted set per key (shared across processes)."""
+
+    def __init__(self, client) -> None:
+        self._client = client
+
+    def hit(self, key: str, limit: int, window_seconds: int) -> float | None:
+        now = time.time()
+        redis_key = f"tw:ratelimit:{key}"
+        try:
+            pipe = self._client.pipeline()
+            pipe.zremrangebyscore(redis_key, 0, now - window_seconds)
+            pipe.zcard(redis_key)
+            pipe.zrange(redis_key, 0, 0, withscores=True)
+            _, count, oldest = pipe.execute()
+            if count >= limit:
+                return max(0.0, oldest[0][1] + window_seconds - now) if oldest else float(window_seconds)
+            pipe = self._client.pipeline()
+            pipe.zadd(redis_key, {f"{now}:{uuid.uuid4().hex[:8]}": now})
+            pipe.expire(redis_key, window_seconds)
+            pipe.execute()
+        except Exception:
+            return None  # fail open: Redis trouble shouldn't take the API down
+        return None
+
+
+def _build_store() -> RateLimitStore:
+    if settings.cache_backend == "redis":
+        import redis
+
+        client = redis.Redis.from_url(
+            settings.cache_url or settings.redis_url, socket_timeout=0.5, socket_connect_timeout=0.5
+        )
+        return RedisRateLimitStore(client)
+    return MemoryRateLimitStore()
+
+
+store: RateLimitStore = _build_store()
 
 
 def _client_ip(request: Request) -> str:
@@ -63,7 +102,10 @@ async def rate_limit_middleware(request: Request, call_next):
     else:
         key, limit = f"api:{ip}", settings.rate_limit_requests
 
-    retry_after = store.hit(key, limit, window)
+    if isinstance(store, MemoryRateLimitStore):
+        retry_after = store.hit(key, limit, window)
+    else:
+        retry_after = await asyncio.to_thread(store.hit, key, limit, window)
     if retry_after is not None:
         return JSONResponse(
             status_code=429,

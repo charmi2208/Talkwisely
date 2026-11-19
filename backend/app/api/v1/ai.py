@@ -17,6 +17,9 @@ from app.ai.pipeline.graph import llm_session
 from app.core.access import conversation_scope, is_privileged
 from app.core.dependencies import get_current_user, get_db
 from app.core.logging import get_logger
+from app.services.nl_analytics import answer_analytics_question
+from app.core.cache import get_or_compute
+from app.core.config import settings
 
 router = APIRouter(prefix="/ai", tags=["AI Copilot & Tools"])
 logger = get_logger("api.v1.ai")
@@ -28,11 +31,21 @@ class CopilotChatRequest(BaseModel):
     chat_history: Optional[list[dict]] = None
 
 
+class AnalyticsAnswer(BaseModel):
+    tool: str
+    title: str
+    period: str
+    columns: list[str]
+    rows: list[list]
+
+
 class CopilotChatResponse(BaseModel):
     answer: str
     query: str
     citations: list[dict]
     context_count: int
+    # Set when the question was answered by a predefined analytics function (exact numbers)
+    analytics: Optional[AnalyticsAnswer] = None
 
 
 class GenerateEmailRequest(BaseModel):
@@ -84,16 +97,42 @@ async def copilot_chat(
     await _check_conversation_access(db, current_user, payload.conversation_id)
 
     async with llm_session() as llm:
-        agent = CopilotAgent(llm)
+        # Organization-wide counts, rankings and percentages come from predefined queries
+        if not payload.conversation_id:
+            analytics = await answer_analytics_question(payload.query.strip(), current_user, db, llm)
+            if analytics:
+                return CopilotChatResponse(
+                    answer=analytics.answer,
+                    query=payload.query,
+                    citations=[],
+                    context_count=0,
+                    analytics=AnalyticsAnswer(**analytics.payload()),
+                )
 
-        result = await agent.answer_question(
-            query=payload.query.strip(),
-            organization_id=current_user.organization_id,
-            conversation_id=payload.conversation_id,
-            chat_history=payload.chat_history,
-            db_session=db,
-            owner_id=None if is_privileged(current_user) else current_user.id,
-        )
+        owner_id = None if is_privileged(current_user) else current_user.id
+
+        async def run_copilot() -> dict:
+            return await CopilotAgent(llm).answer_question(
+                query=payload.query.strip(),
+                organization_id=current_user.organization_id,
+                conversation_id=payload.conversation_id,
+                chat_history=payload.chat_history,
+                db_session=db,
+                owner_id=owner_id,
+            )
+
+        if payload.chat_history:
+            result = await run_copilot()  # follow-ups depend on the conversation so far
+        else:
+            # Same question, same data: reuse the answer. New data changes the cache generation.
+            result = await get_or_compute(
+                "copilot",
+                current_user.organization_id,
+                f"user:{owner_id}" if owner_id else "org",
+                {"q": " ".join(payload.query.lower().split()), "conversation": payload.conversation_id, "llm": llm.model_name},
+                run_copilot,
+                ttl=settings.copilot_cache_ttl_seconds,
+            )
 
     return CopilotChatResponse(
         answer=result["answer"],
@@ -172,48 +211,19 @@ async def natural_language_query(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Translate natural language questions into safe analytics operations."""
-    query_lower = payload.query.lower()
+    """Answer an analytics question with a predefined, validated query (never generated SQL).
 
-    if "high intent" in query_lower or "high-intent" in query_lower:
-        from app.db.models import Conversation, SalesInsight
-        from sqlalchemy import select
-        res = await db.execute(
-            select(Conversation)
-            .join(SalesInsight)
-            .where(
-                *conversation_scope(current_user),
-                SalesInsight.purchase_intent == "high",
-            )
-            .limit(10)
-        )
-        convs = res.scalars().all()
-        return {
-            "query_type": "high_intent_leads",
-            "count": len(convs),
-            "results": [{"id": c.id, "title": c.title, "created_at": c.created_at} for c in convs],
-        }
-
-    if "objection" in query_lower:
-        from app.db.models import Objection, Conversation
-        from sqlalchemy import select, func
-        res = await db.execute(
-            select(Objection.category, func.count(Objection.id).label("count"))
-            .join(Conversation)
-            .where(*conversation_scope(current_user))
-            .group_by(Objection.category)
-            .order_by(func.count(Objection.id).desc())
-        )
-        counts = res.all()
-        return {
-            "query_type": "objection_breakdown",
-            "results": [{"category": cat, "count": cnt} for cat, cnt in counts],
-        }
-
-    # Fallback to copilot search
+    Questions that aren't about counts, rankings, averages or percentages fall back to the
+    search-based Copilot.
+    """
+    if not payload.query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
     async with llm_session() as llm:
-        agent = CopilotAgent(llm)
-        res = await agent.answer_question(
+        analytics = await answer_analytics_question(payload.query.strip(), current_user, db, llm)
+        if analytics:
+            return {"query_type": analytics.tool, "answer": analytics.answer, **analytics.payload()}
+
+        res = await CopilotAgent(llm).answer_question(
             query=payload.query,
             organization_id=current_user.organization_id,
             db_session=db,

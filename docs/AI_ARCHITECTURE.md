@@ -73,7 +73,21 @@ The OpenAI provider retries rate limits, transport errors and invalid JSON, and 
 - **Indexing** (`rag/indexer.py`): after processing, overlapping transcript windows (with speaker and timestamp) and a summary chunk are embedded into Chroma. Knowledge-base uploads (PDF, DOCX, TXT, MD) are chunked and embedded too.
 - **Collections**: one per embedding model, because vectors from different models aren't comparable. Run `scripts/reindex.py --all` after switching provider.
 - **Copilot** (`agents/copilot_agent.py`): retrieves the most relevant chunks, adds structured records (one conversation's summary, sales signals, tasks and objections, or an index of recent conversations), and asks the LLM to answer only from them with numbered citations. Only cited sources are returned. Agents' searches are limited to their own conversations plus the knowledge base.
-- **Natural-language analytics** (`POST /ai/natural-language-query`): recognized questions map to predefined, parameterized queries; the LLM never writes SQL. Anything else falls back to the Copilot.
+- **Copilot answer cache**: identical questions (without chat history) reuse the previous answer until the organization's data changes (see Caching in `docs/ARCHITECTURE.md`).
+
+## Natural-language analytics
+
+Questions about counts, rankings, averages and percentages ("How many high-intent leads did we have this month?", "Which sales representative had the highest average score?") are answered with exact figures by `app/services/nl_analytics.py`, both in the Copilot and through `POST /ai/natural-language-query`.
+
+| Step | How |
+|---|---|
+| Route | Keyword rules map common phrasings to one of ten predefined functions. Ambiguous topics (sentiment, objections, tasks) also need an analytical cue such as "how many", "percentage" or "most", so "What objections did Acme raise?" still goes to the Copilot. |
+| LLM fallback | If the rules don't match but the question looks analytical, a real LLM picks a function, period and conversation type from closed lists. The response is validated with Pydantic; anything outside the lists is rejected. |
+| Parameters | Periods (today, this week, last month, last N days, this year, all time; default last 30 days), conversation type ("sales calls", "meetings", ...) and "top N". |
+| Execute | Parameterized SQLAlchemy queries, scoped like everything else (agents get their own data). The LLM never writes SQL. |
+| Answer | The sentence and the table are built from the query results, so numbers can't be hallucinated. The Copilot shows the table with "computed from your data". |
+
+Functions: conversation volume, sentiment breakdown, top objections, agent leaderboard (AI-assessed QA scores), competitor mentions, high-intent leads, average lead score, pipeline stages, open action items, top topics. Anything else falls back to the search-based Copilot.
 
 ## On-demand agents
 

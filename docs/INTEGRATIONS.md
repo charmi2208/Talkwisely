@@ -1,10 +1,11 @@
 # Integration guide
 
-TalkWiseAI connects to four kinds of external systems through adapters. Every adapter has an interface and a mock implementation; real providers are listed but not built yet, because their APIs (in particular TalkWisely's) aren't available to this project. The spec rule is to never invent a third-party API.
+TalkWiseAI connects to five kinds of external systems through adapters. Every adapter has an interface and a mock implementation; real providers are listed but not built yet, because their APIs (in particular TalkWisely's) aren't available to this project. The spec rule is to never invent a third-party API.
 
 | Integration | Interface | Implemented provider | Used for |
 |---|---|---|---|
 | TalkWisely Cloud PBX | `CallProviderAdapter` (`integrations/talkwisely/talkwisely_adapter.py`) | Mock PBX: two sample call records with placeholder audio | Importing call recordings as conversations |
+| Meeting platforms (Zoom, Google Meet, Teams) | `MeetingProviderAdapter` (`integrations/meetings/meeting_adapter.py`) | Mock meetings: two sample recordings with placeholder audio | Importing recorded meetings as conversations |
 | CRM | `CRMProvider` (`integrations/crm/crm_adapter.py`) | Mock CRM: accepts writes without contacting anything | Writing approved CRM update proposals |
 | Calendar | `CalendarProvider` (`integrations/calendar/calendar_adapter.py`) | Mock calendar | Scheduling follow-ups (adapter only; no UI yet) |
 | Email | `EmailProvider` (`integrations/email_provider/email_adapter.py`) | Mock email: reports success without sending anything | Password reset emails; follow-up emails stay drafts |
@@ -23,7 +24,7 @@ Credentials never go in the database or through the API. Real adapters read them
 
 ## TalkWisely PBX import
 
-`POST /api/v1/integrations/talkwisely/sync` (admins and managers), the **Sync TalkWisely Calls** button, and the optional auto-sync all call `services/pbx_import.py`:
+`POST /api/v1/integrations/talkwisely/sync` (admins and managers), the **Sync TalkWisely Calls** button, and the optional auto-sync all call `services/recording_import.py`:
 
 1. Fetch up to "Calls per sync" recent calls from the adapter.
 2. Skip calls already imported (tracked by call ID in the stored file name).
@@ -31,6 +32,10 @@ Credentials never go in the database or through the API. Real adapters read them
 4. Record the sync time and an audit entry.
 
 Because the mock PBX has no real audio, imports are refused unless `STT_PROVIDER=mock`, with a message explaining why. Users who turn on **TalkWisely Cloud PBX Auto-Sync** in Settings get an import every `PBX_AUTO_SYNC_INTERVAL_MINUTES` (default 15) for their organization.
+
+## Meeting recordings import
+
+`POST /api/v1/integrations/meetings/sync` (admins and managers), **Sync now** on the Meeting platforms card and **Import recordings** on the Meetings page use the same importer as the PBX (`services/recording_import.py`): new recordings become conversations titled "Zoom meeting: ..." or "Teams meeting: ...", with the platform, host and participant count in their metadata, and are analyzed like uploads. As with the PBX, the mock has no real audio, so imports need `STT_PROVIDER=mock`.
 
 ## CRM approval flow
 
@@ -48,4 +53,4 @@ Example: HubSpot for the CRM.
 4. Mark the provider `available=True` in the `INTEGRATIONS` registry and add any non-secret settings as `ConfigField`s.
 5. Add tests that mock the HTTP calls (`httpx` makes this straightforward) and update this guide.
 
-The same steps apply to the PBX (implement `fetch_calls`, `fetch_call_recording`, `fetch_call_metadata`), calendar and email adapters.
+The same steps apply to the PBX (implement `fetch_calls`, `fetch_call_recording`, `fetch_call_metadata`), meeting platforms (`list_recordings`, `download_recording`; return the adapter from `import_meeting_recordings`), calendar and email adapters.

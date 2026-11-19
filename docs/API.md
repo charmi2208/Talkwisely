@@ -74,7 +74,7 @@ Rate limits: 10 requests per minute per IP on login, register and password reset
 |---|---|---|---|
 | POST | `/ai/copilot/chat` | Signed in | RAG-powered conversational assistant querying conversations, summaries, sales insights, and knowledge base. |
 | POST | `/ai/generate-email` | Signed in | Generate a context-aware follow-up email based on conversation insights. |
-| POST | `/ai/natural-language-query` | Signed in | Translate natural language questions into safe analytics operations. |
+| POST | `/ai/natural-language-query` | Signed in | Answer an analytics question with a predefined, validated query (never generated SQL). |
 
 ## Action items
 
@@ -132,7 +132,7 @@ Rate limits: 10 requests per minute per IP on login, register and password reset
 |---|---|---|---|
 | GET | `/integrations` | Signed in | Every integration with its provider, settings and status for this organization. |
 | PUT | `/integrations/{key}` | admin | Turn an integration on or off, pick its provider or edit its settings (admin only). |
-| POST | `/integrations/talkwisely/sync` | admin, manager | Import new calls from the TalkWisely PBX adapter and queue them for analysis. |
+| POST | `/integrations/{key}/sync` | admin, manager | Import new recordings (PBX calls or meeting recordings) and queue them for analysis. |
 | POST | `/integrations/{key}/test` | admin, manager | Run the configured adapter's health check and report how long it took. |
 
 ## Notifications

@@ -4,9 +4,10 @@ Integrations & Adapters API Router.
 GET  /api/v1/integrations                 — Each integration's provider, settings and status
 PUT  /api/v1/integrations/{key}           — Turn on/off, choose provider, edit settings (admin)
 POST /api/v1/integrations/{key}/test      — Run the adapter's health check (admin, manager)
-POST /api/v1/integrations/talkwisely/sync — Import new PBX calls as conversations (admin, manager)
+POST /api/v1/integrations/{key}/sync      — Import new recordings as conversations (admin, manager);
+                                           talkwisely (PBX calls) and meetings (Zoom, Meet, Teams)
 
-Keys: talkwisely, crm, calendar, email. Only mock providers are implemented; the
+Keys: talkwisely, meetings, crm, calendar, email. Only mock providers are implemented; the
 response says so (``is_mock``) instead of claiming a live connection.
 """
 
@@ -19,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_user, get_db, require_roles
 from app.db.models import AuditLog
 from app.integrations.registry import INTEGRATIONS, check_connection, clean_config, get_integration
-from app.services.pbx_import import ImportBlocked, import_pbx_calls
+from app.services.recording_import import ImportBlocked, import_meeting_recordings, import_pbx_calls
 
 router = APIRouter(prefix="/integrations", tags=["Integrations & Adapters"])
 
@@ -139,21 +140,30 @@ async def update_integration(
     return _to_response(spec, row)
 
 
-@router.post("/talkwisely/sync")
-async def sync_talkwisely_calls(
+IMPORTERS = {"talkwisely": import_pbx_calls, "meetings": import_meeting_recordings}
+
+
+@router.post("/{key}/sync")
+async def sync_recordings(
+    key: str,
     background_tasks: BackgroundTasks,
     current_user=Depends(require_roles("admin", "manager")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Import new calls from the TalkWisely PBX adapter and queue them for analysis."""
+    """Import new recordings (PBX calls or meeting recordings) and queue them for analysis."""
+    _spec_or_404(key)
+    importer = IMPORTERS.get(key)
+    if importer is None:
+        raise HTTPException(status_code=400, detail="This integration doesn't import recordings")
     try:
-        result = await import_pbx_calls(db, current_user.organization_id, current_user.id, background_tasks)
+        result = await importer(db, current_user.organization_id, current_user.id, background_tasks)
     except ImportBlocked as e:
         raise HTTPException(status_code=409, detail=str(e))
     imported, skipped = result["imported"], result["skipped"]
+    noun = "call" if key == "talkwisely" else "recording"
     message = (
-        f"Imported {imported} new call{'s' if imported != 1 else ''}; analysis has started."
-        if imported else "No new calls to import."
+        f"Imported {imported} new {noun}{'s' if imported != 1 else ''}; analysis has started."
+        if imported else f"No new {noun}s to import."
     )
     if skipped:
         message += f" Skipped {skipped} already imported."

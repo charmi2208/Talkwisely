@@ -10,7 +10,7 @@ export interface IntegrationConfigField {
 }
 
 export interface Integration {
-  key: "talkwisely" | "crm" | "calendar" | "email";
+  key: "talkwisely" | "meetings" | "crm" | "calendar" | "email";
   name: string;
   description: string;
   provider: string;
@@ -30,6 +30,9 @@ export const integrationsApi = {
     (await apiClient.put<Integration>(`/integrations/${key}`, data)).data,
   test: async (key: string) =>
     (await apiClient.post<{ ok: boolean; latency_ms: number | null; message: string }>(`/integrations/${key}/test`)).data,
+  /** Import new recordings: "talkwisely" (PBX calls) or "meetings" (Zoom, Meet, Teams) */
+  sync: async (key: "talkwisely" | "meetings") =>
+    (await apiClient.post<{ imported: number; skipped: number; message: string }>(`/integrations/${key}/sync`)).data,
   syncPbx: async () =>
     (await apiClient.post<{ imported: number; skipped: number; message: string }>("/integrations/talkwisely/sync")).data,
 };

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { Bot, Send, Sparkles, User } from "lucide-react";
-import { aiApi, citationLabel, type Citation } from "@/lib/api/ai";
+import { aiApi, citationLabel, type AnalyticsAnswer, type Citation } from "@/lib/api/ai";
 import { toast } from "sonner";
 import { clsx } from "clsx";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -15,12 +15,14 @@ import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/i
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   citations?: Citation[];
+  analytics?: AnalyticsAnswer | null;
 }
 
 export default function AIAssistantPage() {
@@ -35,6 +37,8 @@ export default function AIAssistantPage() {
   const [loading, setLoading] = useState(false);
 
   const samplePrompts = [
+    "What percentage of calls were positive this month?",
+    "Which sales representative had the highest average score?",
     "Which customers discussed enterprise pricing this week?",
     "Show calls where customers showed high buying intent",
     "What are the top three objections mentioned in sales calls?",
@@ -59,6 +63,7 @@ export default function AIAssistantPage() {
         role: "assistant",
         content: res.answer,
         citations: res.citations,
+        analytics: res.analytics,
       };
       setMessages((prev) => [...prev, botMsg]);
     } catch {
@@ -107,6 +112,36 @@ export default function AIAssistantPage() {
                     )}
                   >
                     <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+
+                    {msg.analytics && msg.analytics.rows.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        <Separator className="mb-3" />
+                        <span className="text-[11px] font-semibold text-muted-foreground">
+                          {msg.analytics.title} · {msg.analytics.period} · computed from your data
+                        </span>
+                        <div className="rounded-md border bg-background">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                {msg.analytics.columns.map((c) => <TableHead key={c} className="text-xs">{c}</TableHead>)}
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {msg.analytics.rows.slice(0, 10).map((row, i) => (
+                                <TableRow key={i}>
+                                  {row.map((cell, j) => (
+                                    <TableCell key={j} className="text-xs tabular-nums whitespace-normal">{cell ?? "-"}</TableCell>
+                                  ))}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                        {msg.analytics.rows.length > 10 && (
+                          <p className="text-[11px] text-muted-foreground">Showing 10 of {msg.analytics.rows.length} rows.</p>
+                        )}
+                      </div>
+                    )}
 
                     {msg.citations && msg.citations.length > 0 && (
                       <div className="mt-3 space-y-1.5">

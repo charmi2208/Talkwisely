@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
 
+    # ---- Caching (analytics, Copilot answers, job status) ----
+    # memory = per process; redis = shared across API replicas and Celery workers; none = off
+    cache_backend: Literal["memory", "redis", "none"] = "memory"
+    cache_url: str = ""  # defaults to REDIS_URL
+    cache_ttl_seconds: int = 60
+    copilot_cache_ttl_seconds: int = 600
+
     # ---- Background jobs ----
     # background = run the pipeline in the API process (FastAPI BackgroundTasks; no Redis needed)
     # celery     = enqueue on the Celery broker; run a worker with

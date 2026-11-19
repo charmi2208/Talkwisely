@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { Phone, Database, Calendar, Mail, RefreshCw, Zap, Settings2, CircleSlash, FlaskConical } from "lucide-react";
+import { Phone, Database, Calendar, Mail, RefreshCw, Zap, Settings2, CircleSlash, FlaskConical, Video } from "lucide-react";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api/errors";
 import { integrationsApi, type Integration } from "@/lib/api/integrations";
@@ -25,6 +25,7 @@ import { Switch } from "@/components/ui/switch";
 
 const icons: Record<string, React.ElementType> = {
   talkwisely: Phone,
+  meetings: Video,
   crm: Database,
   calendar: Calendar,
   email: Mail,
@@ -45,6 +46,7 @@ export default function IntegrationsPage() {
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
+  const [importing, setImporting] = useState<string | null>(null);
   const [editing, setEditing] = useState<Integration | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -77,6 +79,19 @@ export default function IntegrationsPage() {
       toast.error(apiErrorMessage(err, "The PBX sync failed"));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleImport = async (item: Integration) => {
+    setImporting(item.key);
+    try {
+      const result = await integrationsApi.sync(item.key as "talkwisely" | "meetings");
+      toast.success(result.message);
+      load();
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "The import failed"));
+    } finally {
+      setImporting(null);
     }
   };
 
@@ -191,6 +206,12 @@ export default function IntegrationsPage() {
                   <CardFooter className="border-t justify-between gap-2 text-xs text-muted-foreground">
                     <span>Last sync: {item.last_synced_at ? formatDateTime(item.last_synced_at) : "never"}</span>
                     <div className="flex items-center gap-1">
+                      {canOperate && item.key === "meetings" && (
+                        <Button variant="ghost" size="xs" onClick={() => handleImport(item)} disabled={importing === item.key || !item.is_enabled}>
+                          {importing === item.key ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
+                          Sync now
+                        </Button>
+                      )}
                       {canOperate && (
                         <Button variant="ghost" size="xs" onClick={() => handleTest(item)} disabled={testing === item.key}>
                           {testing === item.key && <Spinner data-icon="inline-start" />}
