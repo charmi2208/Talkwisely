@@ -141,6 +141,9 @@ class Settings(BaseSettings):
 
     # ---- CORS ----
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # Optional regex for extra allowed origins, e.g. Vercel preview URLs:
+    # https://talkwiseai[a-z0-9-]*\.vercel\.app
+    cors_origin_regex: str = ""
 
     # ---- Rate Limiting ----
     rate_limit_enabled: bool = True
@@ -150,6 +153,24 @@ class Settings(BaseSettings):
     # ---- Demo Mode ----
     demo_mode_enabled: bool = True
     demo_org_slug: str = "demo"
+
+    @model_validator(mode="after")
+    def normalize_database_urls(self):
+        """Accept the plain ``postgres://`` URLs hosting platforms provide.
+
+        The API needs the asyncpg driver and migrations/scripts need psycopg2, so a single
+        ``postgres://user:pass@host/db`` works for both settings.
+        """
+        def scheme_fix(url: str) -> str:
+            return "postgresql://" + url[len("postgres://"):] if url.startswith("postgres://") else url
+
+        sync_url = scheme_fix(self.database_sync_url)
+        async_url = scheme_fix(self.database_url)
+        if async_url.startswith("postgresql://"):
+            async_url = "postgresql+asyncpg://" + async_url[len("postgresql://"):]
+        self.database_url = async_url
+        self.database_sync_url = sync_url
+        return self
 
     @field_validator("cors_origins", mode="before")
     @classmethod

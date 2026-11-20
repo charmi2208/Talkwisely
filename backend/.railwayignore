@@ -1,0 +1,12 @@
+# Never upload local secrets, virtualenvs or local data to Railway
+.env.local
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+storage/
+vector_store/
+evaluation/results/*.json

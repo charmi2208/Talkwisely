@@ -16,6 +16,46 @@ TalkWiseAI is cloud-agnostic: a Next.js app, a FastAPI service, PostgreSQL, file
 
 A single small server can run the default Docker Compose stack (API with in-process jobs, embedded Chroma, PostgreSQL) for demos and pilots.
 
+## Current live deployment (Railway + Vercel)
+
+| Part | Where | Address |
+|---|---|---|
+| Web app | Vercel project `talkwiseai` (charmi-dodiyas-projects) | https://talkwiseai-app.vercel.app |
+| API | Railway project `talkwiseai`, service `backend` (built from `backend/Dockerfile`) | https://backend-production-7416ad7c.up.railway.app (docs at `/api/docs`) |
+| Database | Railway PostgreSQL, referenced as `DATABASE_URL=${{Postgres.DATABASE_URL}}` | private network only |
+| Files and search index | Railway volume mounted at `/app/data` (`STORAGE_LOCAL_PATH=/app/data/storage`, `CHROMA_PERSIST_DIR=/app/data/vectors`) | |
+
+How it was set up (Railway CLI 5.x, Vercel CLI):
+
+```bash
+# Backend (from backend/)
+railway login
+railway init --name talkwiseai
+railway add --database postgres
+railway add --service backend && railway service link backend
+railway volume add --mount-path /app/data
+railway variables --set 'DATABASE_URL=${{Postgres.DATABASE_URL}}' --set 'DATABASE_SYNC_URL=${{Postgres.DATABASE_URL}}' \
+  --set APP_ENV=production --set RAILWAY_RUN_UID=0 ...          # see docs/SETUP.md for the full list
+printf '%s' "$GROQ_KEY" | railway variables --set-from-stdin LLM_API_KEY   # secrets via stdin
+railway domain
+railway up --detach
+
+# Frontend (from frontend/)
+vercel project add talkwiseai && vercel link --project talkwiseai
+vercel env add NEXT_PUBLIC_API_URL production   # https://<backend domain>/api/v1
+vercel deploy --prod
+```
+
+Notes:
+- `RAILWAY_RUN_UID=0` lets the container write to the volume (Railway mounts volumes as root; the image otherwise runs as an unprivileged user).
+- The app accepts the plain `postgresql://` URL Railway provides and derives the asyncpg URL itself.
+- CORS allows the Vercel domains through `CORS_ORIGIN_REGEX=https://talkwiseai[a-z0-9-]*\.vercel\.app`; `FRONTEND_URL` is the web app address used in password reset links.
+- `.railwayignore` keeps `.env.local`, the virtualenv and local data out of uploads.
+- **Redeploy the API:** `cd backend && railway up --detach`. Variables change with `railway variables --set KEY=value` (this redeploys).
+- **Redeploy the web app:** `cd frontend && vercel deploy --prod`. On the Vercel Hobby plan, deployments whose latest git commit was authored by someone outside the Vercel account are blocked ("the commit author doesn't have permission"). Either deploy from a copy of `frontend/` outside the git repository (the CLI then sends no git metadata), or have the account owner make the commit.
+- Vercel Authentication (deployment protection) is on by default and covers `*.vercel.app` addresses, so visitors are asked to log in to Vercel until it's turned off under Project Settings → Deployment Protection.
+- The demo logins are seeded on the live site. Anyone with the link can use them, including the real AI features, which use the configured Groq key.
+
 ## Docker Compose
 
 ```bash

@@ -111,6 +111,7 @@ Settings are read from `backend/.env` (committed placeholders), then `backend/.e
 | `APP_HOST` / `APP_PORT` | `0.0.0.0` / `8000` | Where `start.py` serves the API. |
 | `FRONTEND_URL` | `http://localhost:3000` | Used in password reset links. |
 | `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated origins allowed to call the API. |
+| `CORS_ORIGIN_REGEX` | empty | Extra allowed origins as a regex, e.g. `https://talkwiseai[a-z0-9-]*\.vercel\.app` for Vercel production and preview URLs. |
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `json` | Logging verbosity and format (`json` or `text`). |
 | `DEMO_MODE_ENABLED` | `true` | Informational; shown in logs. |
 
